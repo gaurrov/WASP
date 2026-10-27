@@ -12,6 +12,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.types import Command
 
 from app.config import get_settings
+from app.monitoring.tasks import request_scan
 from app.workflow.graph import build
 
 log = logging.getLogger(__name__)
@@ -70,7 +71,10 @@ def advance(application_id: uuid.UUID | str, event: dict | None = None) -> CaseS
             graph.invoke(Command(resume=event or {"type": "noop"}), config)
         else:
             log.info("Case %s already finished; ignoring %s", application_id, event)
-        return _status(graph, config)
+        case = _status(graph, config)
+    # Workflow transitions open or close obligations (clarification deadlines, review SLAs).
+    request_scan(application_id)
+    return case
 
 
 def status(application_id: uuid.UUID | str) -> CaseStatus:

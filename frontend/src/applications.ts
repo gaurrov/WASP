@@ -332,3 +332,50 @@ export const requestClarification = (applicationId: string, message: string, fin
 
 export const decideApplication = (applicationId: string, decision: "approve" | "reject", reason: string) =>
   apiJson<{ status: string }>(`/applications/${applicationId}/decision`, "POST", { decision, reason });
+
+// --- Alerts -----------------------------------------------------------------------------
+
+export type AlertStatus =
+  | "active"
+  | "acknowledged"
+  | "overdue"
+  | "escalated"
+  | "resolved"
+  | "reopened"
+  | "scheduled"
+  | "action_pending";
+
+export interface Alert {
+  id: string;
+  alert_type: "certificate_expiry" | "clarification_response" | "review_sla" | string;
+  audience: "institution" | "reviewer";
+  severity: Severity;
+  status: AlertStatus;
+  title: string;
+  message: string;
+  due_at: string | null;
+  details: Record<string, unknown>;
+  institution_name: string;
+  application_id: string | null;
+  application_label: string | null;
+  created_at: string;
+  acknowledged_at: string | null;
+  escalated_at: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export const fetchAlerts = (params: { status?: "open" | "resolved" | "all"; application_id?: string } = {}) =>
+  api<Alert[]>(`/alerts?${new URLSearchParams(params as Record<string, string>)}`);
+
+export const fetchAlertSummary = () =>
+  api<{ open: number; critical: number; high: number }>("/alerts/summary");
+
+export const acknowledgeAlert = (id: string) =>
+  api<{ status: string }>(`/alerts/${id}/acknowledge`, { method: "POST" });
+
+export const resolveAlert = (id: string, note: string) =>
+  apiJson<{ status: string }>(`/alerts/${id}/resolve`, "POST", { note });
+
+export const runMonitoringScan = (asOf?: string) =>
+  apiJson<Record<string, number | string>>("/monitoring/scan", "POST", asOf ? { as_of: asOf } : {});

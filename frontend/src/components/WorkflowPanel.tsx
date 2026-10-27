@@ -194,11 +194,21 @@ const EVENT_LABELS: Record<string, (e: WorkflowEvent) => string> = {
   evaluation_requested: () => "Requested re-evaluation",
   finding_reviewed: (e) => `${e.payload.outcome === "override" ? "Overrode" : "Confirmed"} a finding${e.payload.comment ? `: “${e.payload.comment}”` : ""}`,
   clarification_requested: (e) => `Requested clarification: “${e.payload.message}”`,
+  alert_raised: (e) => `Alert raised: ${e.payload.title}`,
+  alert_overdue: (e) => `Alert overdue: ${e.payload.title}`,
+  alert_escalated: (e) => `Alert escalated: ${e.payload.title}`,
+  alert_reopened: (e) => `Alert reopened: ${e.payload.title}`,
+  alert_acknowledged: (e) => `Alert acknowledged: ${e.payload.title}`,
+  alert_resolved: (e) =>
+    e.payload.automatic === false
+      ? `Alert resolved by reviewer: “${e.payload.note}”`
+      : `Alert resolved automatically: ${e.payload.title}`,
   application_decided: (e) => `${e.payload.decision === "approve" ? "Approved" : "Rejected"}: “${e.payload.reason}”`,
 };
 
 const DOCUMENT_EVENTS: Record<string, string> = {
   document_uploaded: "uploaded",
+  compliance_document_updated: "renewed",
   document_processed: "extracted",
   document_reprocess_requested: "queued for re-extraction",
   document_deleted: "deleted",

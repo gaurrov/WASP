@@ -1,7 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import applications, auth, documents, findings, health, regulatory, workflow
+from app.api import (
+    alerts,
+    applications,
+    auth,
+    documents,
+    findings,
+    health,
+    regulatory,
+    workflow,
+)
 from app.config import get_settings
 
 app = FastAPI(title="WASP API", version="0.1.0")
@@ -21,3 +30,4 @@ app.include_router(documents.router, prefix="/api")
 app.include_router(findings.router, prefix="/api")
 app.include_router(regulatory.router, prefix="/api")
 app.include_router(workflow.router, prefix="/api")
+app.include_router(alerts.router, prefix="/api")

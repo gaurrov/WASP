@@ -1,9 +1,17 @@
+import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router";
+import { fetchAlertSummary } from "../applications";
 import { useAuth } from "../auth";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const { data: summary } = useQuery({
+    queryKey: ["alert-summary"],
+    queryFn: fetchAlertSummary,
+    enabled: !!user,
+    refetchInterval: 30_000,
+  });
   if (!user) return null;
 
   const navLink = ({ isActive }: { isActive: boolean }) =>
@@ -19,6 +27,18 @@ export default function Layout({ children }: { children: ReactNode }) {
             </Link>
             <NavLink to="/applications" className={navLink}>
               {user.role === "institution" ? "My applications" : "Review queue"}
+            </NavLink>
+            <NavLink to="/alerts" className={navLink}>
+              Alerts
+              {summary && summary.open > 0 && (
+                <span
+                  className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium text-white ${
+                    summary.critical > 0 ? "bg-red-600" : summary.high > 0 ? "bg-orange-500" : "bg-slate-500"
+                  }`}
+                >
+                  {summary.open}
+                </span>
+              )}
             </NavLink>
             {user.role !== "institution" && (
               <>
