@@ -63,7 +63,7 @@ reviewer "request clarification" waits for re-upload, then reruns only the affec
 | **M2** | Document intelligence ✅ | Upload a PDF → extracted facts shown with confidence + page; low confidence flagged |
 | **M3** | Rules + RAG ✅ (APH not yet loaded) | Findings shown as pass / fail / needs_review, each with evidence + cited APH clause |
 | **M4** | LangGraph workflow ✅ | Full graph with review interrupt; re-upload resumes and reruns only affected checks |
-| **M5** | Monitoring + alerts | Expiry/deadline scans create deduplicated alerts with lifecycle (active → acknowledged → resolved / escalated) |
+| **M5** | Monitoring + alerts ✅ | Expiry/deadline scans create deduplicated alerts with lifecycle (active → acknowledged → resolved / escalated) |
 | **M6** | Demo hardening | Scripted demo passes 5× in a row; works offline; deck + video ready |
 
 ## Team split (6)

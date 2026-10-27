@@ -14,12 +14,12 @@ const SECTIONS: Record<Role, Section[]> = {
   institution: [
     { title: "My applications", description: "Create applications and upload documents.", to: "/applications" },
     { title: "Compliance check", description: "See what each submitted application is missing.", to: "/applications" },
-    { title: "Alerts", description: "Expiring certificates and upcoming deadlines.", milestone: "M5" },
+    { title: "Alerts", description: "Expiring certificates and response deadlines.", to: "/alerts" },
   ],
   reviewer: [
     { title: "Review queue", description: "Submitted applications and their document checklists.", to: "/applications" },
     { title: "Compliance rules", description: "Rules, their norms and handbook verification.", to: "/rules" },
-    { title: "Alerts", description: "Escalations and overdue institution actions.", milestone: "M5" },
+    { title: "Alerts", description: "Escalations, overdue responses and review SLAs.", to: "/alerts" },
   ],
   admin: [
     { title: "All applications", description: "Every application across institutions.", to: "/applications" },

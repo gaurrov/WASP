@@ -64,6 +64,17 @@ services:
     depends_on:
       backend: { condition: service_started }
 
+  # Scheduler: runs the monitoring scan periodically (expiring certificates, overdue responses).
+  beat:
+    image: wasp-backend:dev
+    environment:
+      <<: *backend-env
+      WASP_MONITORING_INTERVAL_SECONDS: "300"  # every 5 minutes in dev
+    command: celery -A app.worker beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    volumes: [./backend:/app]
+    depends_on:
+      backend: { condition: service_started }
+
   frontend:
     image: node:24-alpine
     working_dir: /app

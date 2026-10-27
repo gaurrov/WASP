@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "./auth";
 import "./index.css";
+import AlertsPage from "./pages/AlertsPage";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import ApplicationsList from "./pages/ApplicationsList";
 import Dashboard from "./pages/Dashboard";
@@ -35,6 +36,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/documents/:id" element={<RequireAuth><DocumentViewer /></RequireAuth>} />
             <Route path="/rules" element={<RequireAuth><RulesPage /></RequireAuth>} />
             <Route path="/handbook" element={<RequireAuth><HandbookPage /></RequireAuth>} />
+            <Route path="/alerts" element={<RequireAuth><AlertsPage /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

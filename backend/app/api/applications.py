@@ -17,8 +17,14 @@ from app.checklists import APPLICATION_TYPES
 from app.config import get_settings
 from app.db import get_db
 from app.docintel.tasks import enqueue_processing
-from app.models import Application, Document, ExtractedFact, Institution, User
-from app.models.enums import ApplicationStatus, DocumentType, ProcessingStatus, UserRole
+from app.models import Alert, Application, Document, ExtractedFact, Institution, User
+from app.models.enums import (
+    ApplicationStatus,
+    DocumentType,
+    ProcessingStatus,
+    UserRole,
+)
+from app.monitoring.scan import OPEN as OPEN_ALERTS
 from app.storage import get_s3
 from app.workflow.tasks import send_event
 
@@ -139,6 +145,26 @@ def load_application(db: Session, application_id: uuid.UUID, user: User) -> Appl
     if user.role == UserRole.REVIEWER and application.status == ApplicationStatus.DRAFT:
         raise HTTPException(status_code=404, detail="Application not found")
     return application
+
+
+def is_compliance_update(
+    db: Session, application: Application, replaces_id: uuid.UUID | None
+) -> bool:
+    """Outside draft/clarification, an institution may still replace a document that an open
+    certificate-expiry alert points at: that's how a renewed certificate gets uploaded."""
+    if replaces_id is None:
+        return False
+    return (
+        db.scalar(
+            select(Alert.id).where(
+                Alert.application_id == application.id,
+                Alert.alert_type == "certificate_expiry",
+                Alert.status.in_(OPEN_ALERTS),
+                Alert.details["document_id"].astext == str(replaces_id),
+            )
+        )
+        is not None
+    )
 
 
 def require_editable(application: Application) -> None:
@@ -313,7 +339,11 @@ def upload_document(
     replaces_id: Annotated[uuid.UUID | None, Form()] = None,
 ) -> Document:
     application = load_application(db, application_id, user)
-    require_editable(application)
+    compliance_update = application.status not in EDITABLE_STATUSES and is_compliance_update(
+        db, application, replaces_id
+    )
+    if not compliance_update:
+        require_editable(application)
 
     replaced: Document | None = None
     if replaces_id is not None:
@@ -380,7 +410,7 @@ def upload_document(
     db.add(document)
     record_event(
         db,
-        "document_uploaded",
+        "compliance_document_updated" if compliance_update else "document_uploaded",
         application_id=application.id,
         actor_id=user.id,
         document_id=str(doc_id),

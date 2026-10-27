@@ -11,6 +11,7 @@ from app.db import SessionLocal
 from app.docintel.pipeline import EXTRACTOR_NAME, process
 from app.models import Document, ExtractedFact
 from app.models.enums import ApplicationStatus, ProcessingStatus
+from app.monitoring.tasks import request_scan
 from app.storage import get_s3
 from app.worker import celery_app
 from app.workflow.tasks import send_event
@@ -85,3 +86,4 @@ def process_document(document_id: str) -> None:
         # Facts changed, so findings for an application under review are stale.
         if document.application.status != ApplicationStatus.DRAFT:
             send_event(document.application_id, {"type": "documents_changed"})
+            request_scan(document.application_id)  # e.g. a renewed certificate clears an alert

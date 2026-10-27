@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     # Extracted values below this confidence are flagged for human verification.
     low_confidence_threshold: float = 0.80
 
+    # Monitoring (alerts). Day counts are deliberately simple policy knobs for the demo.
+    monitoring_interval_seconds: int = 3600
+    expiry_warning_days: int = 90  # certificate expiring within this → medium alert
+    expiry_urgent_days: int = 30  # ... within this → high
+    clarification_response_days: int = 15  # institution must respond within this
+    review_sla_days: int = 7  # reviewer should act within this
+    escalate_after_days: int = 7  # overdue this long → escalated
+
     # Local ONNX embedding model (fastembed, no GPU/torch). Dimension must match the model.
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384

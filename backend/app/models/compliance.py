@@ -39,6 +39,13 @@ class ReviewDecision(IdMixin, TimestampMixin, Base):
 
 
 class Alert(IdMixin, TimestampMixin, Base):
+    """A monitored obligation (expiring certificate, overdue response, review SLA).
+
+    Created and updated by the monitoring scan; one row per obligation (dedup_key), so repeated
+    scans update it. It resolves only when the scan sees the condition cleared in the data, or
+    when a reviewer records an alternative outcome.
+    """
+
     __tablename__ = "alerts"
 
     institution_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("institutions.id"), index=True)
@@ -54,9 +61,17 @@ class Alert(IdMixin, TimestampMixin, Base):
     status: Mapped[AlertStatus] = mapped_column(
         str_enum(AlertStatus), default=AlertStatus.ACTIVE, index=True
     )
+    # Who must act: "institution" (its users) or "reviewer" (the AICTE reviewer pool).
+    audience: Mapped[str] = mapped_column(String(16), default="institution", index=True)
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    resolution_note: Mapped[str | None] = mapped_column(Text)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class WorkflowEvent(IdMixin, Base):

@@ -68,7 +68,10 @@ See [docs/PLAN.md](docs/PLAN.md) for scope, milestones, team split and the demo 
 4. **Review.** The workflow pauses for a reviewer, who confirms or overrides findings, requests
    clarification, or decides. A clarification pauses the case until the institution resubmits;
    only rules affected by the changed documents are re-checked.
-5. **Audit.** Every transition, upload, extraction, review and decision is an append-only event.
+5. **Monitoring.** Scheduled and event-driven scans turn obligations (expiring certificates,
+   response deadlines, review SLAs) into deduplicated alerts that escalate over time and close
+   only when the data shows the obligation is met.
+6. **Audit.** Every transition, upload, extraction, review, decision and alert is an append-only event.
 
 ---
 
@@ -118,6 +121,10 @@ docker compose exec backend python -m app.synthetic   # 43 synthetic documents i
    `building_certificate.pdf`, *Resubmit*.
 5. **Reviewer** → "Round 2: re-checked 3 of 7 rules"; the rest carried over. Override the remaining
    findings with justifications, then *Approve*. The audit trail shows the whole story.
+6. **Institution** → *Alerts* (badge): "Fire safety NOC expires in 30 days". *Upload renewal* →
+   upload a NOC with a later validity date; the alert resolves itself.
+7. **Admin** → *Alerts* → run a scan *as of* a future date to show alerts going overdue and
+   escalating, or a review-SLA breach appearing for reviewers.
 
 ---
 
@@ -226,6 +233,20 @@ To change a rule's logic or numbers, add a **new version** rather than editing t
 Events: `None` (start), `documents_changed`, `reevaluate`, `request_clarification`, `resubmitted`,
 `decide`. Unexpected events leave the case waiting where it is.
 
+#### `monitoring/` — compliance monitoring and alerts
+
+| File | Does |
+|---|---|
+| `obligations.py` | Detectors that derive what should be alerted on *now* from current data: **certificate expiry** (any extracted `valid_until`; medium within 90 days, high within 30, critical once expired), **clarification response** (the institution's deadline after a clarification request), **review SLA** (reviewer pool, from 2 days before the SLA). |
+| `scan.py` | Reconciles alerts with obligations. One alert per obligation (`dedup_key`), so repeated scans update instead of duplicating. Lifecycle: `active → overdue → escalated`; `acknowledged` by a user; `resolved` **only when the obligation disappears from the data** (e.g. a renewed certificate is processed) or a reviewer records an alternative outcome; `reopened` if the condition returns (a manually resolved alert reopens only if things get worse). Every transition is an audit event. |
+| `tasks.py` | `scan_all` (scheduled by Celery **beat**) and `scan_application` (event-driven: after extraction and every workflow transition) |
+
+Renewals: outside draft/clarification, an institution may still **replace a document that an open
+expiry alert points at** (recorded as `compliance_document_updated`); processing it clears the alert.
+
+**To add a monitored obligation:** write a detector `(db, application, now) -> list[Obligation]`
+in `obligations.py`, add it to `DETECTORS`, give it a stable `dedup_key`, and add a test.
+
 ### Frontend (`frontend/src/`)
 
 React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
@@ -244,6 +265,8 @@ React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
 | `pages/DocumentViewer.tsx` | **Evidence viewer**: page images with clickable bounding boxes per extracted value; `?fact=` preselects |
 | `pages/RulesPage.tsx` | Rules, their norms and verification; find and verify clauses |
 | `pages/HandbookPage.tsx` | Upload/index handbook editions; search them |
+| `pages/AlertsPage.tsx` | Alert center (open / resolved / all); admin scan with optional simulated date |
+| `components/AlertCard.tsx` | Alert with severity, status, due date; acknowledge / upload renewal / resolve with note |
 | `components/Layout.tsx` | Header and role-aware navigation |
 | `components/FindingsPanel.tsx` | Findings with evidence, citations, provisional/expiring badges, per-finding review |
 | `components/WorkflowPanel.tsx` | Clarification/decision banners, reviewer actions, audit timeline |
@@ -253,7 +276,7 @@ React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
 
 | Path | Does |
 |---|---|
-| `docker-compose.yml` | Postgres 17 + pgvector, Redis, SeaweedFS (S3), backend, worker, frontend. Backend and worker share one image. |
+| `docker-compose.yml` | Postgres 17 + pgvector, Redis, SeaweedFS (S3), backend, worker, **beat** (scheduler), frontend. Backend, worker and beat share one image. |
 | `backend/Dockerfile` | Python 3.12 + uv + Tesseract |
 | `infra/seaweedfs-s3.json` | S3 credentials for SeaweedFS |
 | `.github/workflows/ci.yml` | Backend (ruff, migrations, `alembic check`, pytest with Tesseract, S3 and cached model) and frontend (typecheck + build) |
@@ -313,6 +336,11 @@ All under `/api`; interactive docs at http://localhost:8000/docs. **I** = instit
 | GET | `/rules` | R, A | Rules and verification state |
 | GET | `/rules/{id}/candidates` | R, A | Handbook passages likely to contain the rule's norm |
 | POST | `/rules/{id}/verify` | A | Pin a rule to the clause you confirmed |
+| GET | `/alerts?status=&application_id=` | any | Alerts (`open`/`resolved`/`all`); institutions see their own institution-facing alerts |
+| GET | `/alerts/summary` | any | Open alert counts for the nav badge |
+| POST | `/alerts/{id}/acknowledge` | any | Acknowledge |
+| POST | `/alerts/{id}/resolve` | R, A | Resolve with a note (alternative outcome) |
+| POST | `/monitoring/scan` | A | Run the scan now; `as_of` (simulated date) only when `WASP_ENV=dev` |
 
 ---
 
@@ -323,6 +351,8 @@ All under `/api`; interactive docs at http://localhost:8000/docs. **I** = instit
 | `app.docintel.process_document` | `documents` | upload, reprocess |
 | `app.rag.ingest_source` | `documents` | handbook upload, re-ingest |
 | `app.workflow.advance_case` | `default` | submit, resubmit, extraction finished, reviewer actions |
+| `app.monitoring.scan_application` | `monitoring` | extraction finished, any workflow transition |
+| `app.monitoring.scan_all` | `monitoring` | Celery beat, every `WASP_MONITORING_INTERVAL_SECONDS` |
 
 Tasks are idempotent and use late acknowledgement, so a crashed worker's task is redelivered
 safely. If Redis is down, uploads still succeed and documents stay `pending` until reprocessed.
@@ -346,6 +376,12 @@ provides dev defaults.
 | `WASP_LOW_CONFIDENCE_THRESHOLD` | `0.80` | Below this, extracted values are flagged for review |
 | `WASP_EMBEDDING_MODEL` / `_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Must match each other and the migration |
 | `WASP_MODEL_CACHE_DIR` | `/models` | Embedding model cache |
+| `WASP_ENV` | `dev` | `dev` enables simulated-date monitoring scans |
+| `WASP_MONITORING_INTERVAL_SECONDS` | `3600` (`300` in compose) | Scheduled scan interval |
+| `WASP_EXPIRY_WARNING_DAYS` / `WASP_EXPIRY_URGENT_DAYS` | `90` / `30` | Certificate expiry → medium / high alert |
+| `WASP_CLARIFICATION_RESPONSE_DAYS` | `15` | Institution's response deadline |
+| `WASP_REVIEW_SLA_DAYS` | `7` | Reviewer's target time to act |
+| `WASP_ESCALATE_AFTER_DAYS` | `7` | Overdue this long → escalated |
 | `OMP_THREAD_LIMIT` | `1` (compose) | One Tesseract thread per worker process |
 
 ---
@@ -404,6 +440,8 @@ wrong. Synthetic documents are cleaner than real ones; re-measure on real sample
 - `test_docintel.py` is an **extraction quality gate**: no field may be silently wrong.
 - `test_workflow.py` runs the full demo cycle, including asserting that resubmission re-checks
   exactly the affected rules.
+- `test_monitoring.py` covers deduplication, time-driven overdue/escalation (simulated scans),
+  automatic resolution by renewal, manual resolution, clarification deadlines and review SLAs.
 - `tests/fixtures.py` contains a *test-only* regulation PDF; it is not AICTE text.
 - CI runs on every push and PR (see `.github/workflows/ci.yml`).
 
@@ -421,4 +459,7 @@ small PRs; keep `main` demo-able.
   LLM fallback for fields the patterns miss is planned once a provider is chosen.
 - **Single decision role.** Any reviewer can approve/reject; production needs a separate,
   authorized approver role.
-- **Monitoring and alerts** (expiring certificates, overdue clarifications) arrive in M5.
+- **In-app alerts only.** Email/SMS delivery isn't wired yet; alerts are the notification record,
+  so a delivery channel means sending on `alert_raised` / `alert_escalated` events.
+- **Approved applications aren't re-evaluated** when a renewal is uploaded: monitoring clears the
+  alert, but findings stay as they were at decision time.

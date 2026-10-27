@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router";
 import {
   EDITABLE,
   deleteDocument,
+  fetchAlerts,
   fetchApplication,
   fetchWorkflow,
   isProcessing,
@@ -13,6 +14,7 @@ import {
   type DocumentInfo,
 } from "../applications";
 import { useAuth } from "../auth";
+import AlertCard from "../components/AlertCard";
 import FindingsPanel from "../components/FindingsPanel";
 import { CaseBanner, Timeline } from "../components/WorkflowPanel";
 import Layout from "../components/Layout";
@@ -55,7 +57,14 @@ export default function ApplicationDetail() {
         : false,
   });
 
+  const { data: appAlerts } = useQuery({
+    queryKey: ["alerts", "application", id],
+    queryFn: () => fetchAlerts({ status: "open", application_id: id }),
+    enabled: !!app && app.status !== "draft",
+  });
+
   const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["alerts"] });
     for (const key of ["application", "workflow", "findings"]) {
       queryClient.invalidateQueries({ queryKey: [key, id] });
     }
@@ -91,6 +100,14 @@ export default function ApplicationDetail() {
   }
 
   const canEdit = user?.role === "institution" && EDITABLE.includes(app.status);
+  // Expiring certificates can be replaced even after submission/approval (compliance update).
+  const renewalDocIds = new Set(
+    user?.role === "institution"
+      ? (appAlerts ?? [])
+          .filter((a) => a.alert_type === "certificate_expiry")
+          .map((a) => String(a.details.document_id))
+      : [],
+  );
   const isDraft = app.status === "draft";
 
   const onUpload = (docType: string) => (e: ChangeEvent<HTMLInputElement>) => {
@@ -154,6 +171,13 @@ export default function ApplicationDetail() {
         <MissingBanner app={app} isInstitution={user?.role === "institution"} />
       )}
       <CaseBanner app={app} workflow={workflow} />
+      {appAlerts && appAlerts.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {appAlerts.map((a) => (
+            <AlertCard key={a.id} alert={a} compact />
+          ))}
+        </div>
+      )}
       {app.status !== "draft" && <FindingsPanel app={app} workflow={workflow} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[16rem_1fr]">
@@ -217,9 +241,15 @@ export default function ApplicationDetail() {
                             {doc.page_count != null && `${doc.page_count} p · `}v{doc.version}
                           </span>
                           <ProcessingChip doc={doc} />
-                          {canEdit && (
-                            <label className="cursor-pointer text-slate-500 hover:text-slate-900">
-                              Replace
+                          {(canEdit || renewalDocIds.has(doc.id)) && (
+                            <label
+                              className={
+                                renewalDocIds.has(doc.id) && !canEdit
+                                  ? "cursor-pointer rounded bg-slate-900 px-1.5 text-white"
+                                  : "cursor-pointer text-slate-500 hover:text-slate-900"
+                              }
+                            >
+                              {renewalDocIds.has(doc.id) && !canEdit ? "Upload renewal" : "Replace"}
                               <input
                                 type="file"
                                 accept={ACCEPT}
