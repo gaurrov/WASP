@@ -1,66 +1,193 @@
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { Link } from "react-router";
-import type { Role } from "../api";
+import {
+  fetchAlerts,
+  fetchApplications,
+  fetchRules,
+  type ApplicationStatus,
+  type ApplicationSummary,
+} from "../applications";
 import { useAuth } from "../auth";
+import AlertCard from "../components/AlertCard";
 import Layout from "../components/Layout";
+import {
+  EmptyState,
+  PageHeader,
+  Panel,
+  StatusPill,
+  buttonClass,
+  formatDate,
+} from "../components/ui";
 
-interface Section {
-  title: string;
-  description: string;
-  to?: string;
-  milestone?: string; // shown until the section is built (see docs/PLAN.md)
-}
+const STAGES: { label: string; statuses: ApplicationStatus[] }[] = [
+  { label: "Needs review", statuses: ["needs_review", "submitted", "processing"] },
+  { label: "Ready for decision", statuses: ["ready_for_decision"] },
+  { label: "With the institution", statuses: ["clarification_requested"] },
+  { label: "Decided", statuses: ["approved", "rejected"] },
+];
 
-const SECTIONS: Record<Role, Section[]> = {
-  institution: [
-    { title: "My applications", description: "Create applications and upload documents.", to: "/applications" },
-    { title: "Compliance check", description: "See what each submitted application is missing.", to: "/applications" },
-    { title: "Alerts", description: "Expiring certificates and response deadlines.", to: "/alerts" },
-  ],
-  reviewer: [
-    { title: "Review queue", description: "Submitted applications and their document checklists.", to: "/applications" },
-    { title: "Compliance rules", description: "Rules, their norms and handbook verification.", to: "/rules" },
-    { title: "Alerts", description: "Escalations, overdue responses and review SLAs.", to: "/alerts" },
-  ],
-  admin: [
-    { title: "All applications", description: "Every application across institutions.", to: "/applications" },
-    { title: "Compliance rules", description: "Verify rules against handbook clauses.", to: "/rules" },
-    { title: "Regulatory handbook", description: "Upload and search official sources.", to: "/handbook" },
-  ],
+/** What the institution should do next, in plain words. */
+export const NEXT_STEP: Record<ApplicationStatus, string> = {
+  draft: "Upload documents and submit",
+  submitted: "Being checked",
+  processing: "Being checked",
+  needs_review: "With an AICTE reviewer",
+  ready_for_decision: "Awaiting decision",
+  clarification_requested: "Respond to the clarification request",
+  approved: "Approved; keep certificates current",
+  rejected: "Rejected; see the reviewer's reason",
 };
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const isStaff = user?.role === "reviewer" || user?.role === "admin";
+  const { data: apps = [] } = useQuery({ queryKey: ["applications"], queryFn: fetchApplications });
+  const { data: alerts = [] } = useQuery({
+    queryKey: ["alerts", "open"],
+    queryFn: () => fetchAlerts({ status: "open" }),
+  });
+  const { data: rules = [] } = useQuery({ queryKey: ["rules"], queryFn: fetchRules, enabled: isStaff });
   if (!user) return null;
+
+  const draftRules = rules.filter((r) => !r.internal && r.status !== "approved").length;
+  const actionable = isStaff
+    ? apps
+        .filter((a) => a.status === "needs_review" || a.status === "ready_for_decision")
+        .sort((a, b) => (a.submitted_at ?? "").localeCompare(b.submitted_at ?? ""))
+    : apps;
 
   return (
     <Layout>
-      <h1 className="text-xl font-semibold text-slate-900">Dashboard</h1>
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {SECTIONS[user.role].map((s) => {
-          const body = (
-            <>
-              <div className="flex items-center justify-between">
-                <h2 className="font-medium text-slate-900">{s.title}</h2>
-                {s.milestone && (
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                    {s.milestone}
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-sm text-slate-500">{s.description}</p>
-            </>
-          );
-          return s.to ? (
-            <Link key={s.title} to={s.to} className="rounded-lg border bg-white p-4 hover:border-slate-400">
-              {body}
+      <PageHeader
+        title={isStaff ? "Overview" : `Welcome, ${user.full_name}`}
+        description={
+          isStaff
+            ? "Cases waiting for a decision, and compliance obligations falling due."
+            : "Your applications and anything that needs your attention."
+        }
+        actions={
+          !isStaff && (
+            <Link to="/applications/new" className={buttonClass("primary")}>
+              New application
             </Link>
-          ) : (
-            <section key={s.title} className="rounded-lg border bg-white p-4 opacity-60">
-              {body}
-            </section>
-          );
-        })}
+          )
+        }
+      />
+
+      {isStaff && (
+        <dl className="mb-8 grid grid-cols-2 overflow-hidden rounded-[var(--radius-panel)] border bg-sheet sm:grid-cols-4">
+          {STAGES.map((s, i) => (
+            <div
+              key={s.label}
+              className={`px-5 py-4 ${i % 2 ? "border-l" : ""} ${i > 1 ? "max-sm:border-t sm:border-l" : ""}`}
+            >
+              <dt className="text-sm text-muted">{s.label}</dt>
+              <dd className="mt-1 text-[1.75rem] leading-none font-bold">
+                {apps.filter((a) => s.statuses.includes(a.status)).length}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      <div className="grid items-start gap-8 lg:grid-cols-[1.45fr_1fr]">
+        <Panel
+          title={isStaff ? "Needs your action" : "Your applications"}
+          actions={
+            <Link to="/applications" className="text-sm text-muted hover:text-ink">
+              View all
+            </Link>
+          }
+        >
+          <CaseList
+            apps={actionable}
+            showNextStep={!isStaff}
+            empty={isStaff ? "Nothing is waiting for review." : "You haven't started an application yet."}
+          />
+        </Panel>
+
+        <div className="space-y-8">
+          <Panel
+            title="Open alerts"
+            actions={
+              <Link to="/alerts" className="text-sm text-muted hover:text-ink">
+                View all
+              </Link>
+            }
+          >
+            {alerts.length === 0 ? (
+              <p className="px-5 py-5 text-sm text-muted">
+                No open alerts. Certificates and deadlines are checked every hour.
+              </p>
+            ) : (
+              <div className="divide-y">
+                {alerts.slice(0, 3).map((a) => (
+                  <AlertCard key={a.id} alert={a} variant="row" />
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          {isStaff && draftRules > 0 && (
+            <Panel title="Rules awaiting verification">
+              <div className="px-5 py-4 text-sm">
+                <p>
+                  {draftRules} regulatory rule{draftRules === 1 ? " uses a norm" : "s use norms"} not yet
+                  checked against the handbook, so {draftRules === 1 ? "its" : "their"} findings are
+                  marked provisional.
+                </p>
+                <Link to="/rules" className={`${buttonClass("secondary", "sm")} mt-3`}>
+                  Verify rules
+                </Link>
+              </div>
+            </Panel>
+          )}
+        </div>
       </div>
     </Layout>
+  );
+}
+
+function CaseList({
+  apps,
+  showNextStep,
+  empty,
+}: {
+  apps: ApplicationSummary[];
+  showNextStep: boolean;
+  empty: string;
+}) {
+  if (apps.length === 0) {
+    return (
+      <div className="p-5">
+        <EmptyState title={empty} />
+      </div>
+    );
+  }
+  return (
+    <ul className="divide-y">
+      {apps.slice(0, 8).map((a) => (
+        <li key={a.id}>
+          <Link
+            to={`/applications/${a.id}`}
+            className="flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-paper/70"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold">{a.institution_name}</p>
+              <p className="truncate text-sm text-muted">
+                {a.application_type_label} {a.academic_year}
+                <span className="mx-2 text-rule-strong" aria-hidden>
+                  |
+                </span>
+                {showNextStep ? NEXT_STEP[a.status] : `Submitted ${formatDate(a.submitted_at)}`}
+              </p>
+            </div>
+            <StatusPill status={a.status} />
+            <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

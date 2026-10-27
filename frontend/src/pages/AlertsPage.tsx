@@ -4,8 +4,14 @@ import { fetchAlerts, runMonitoringScan } from "../applications";
 import { useAuth } from "../auth";
 import AlertCard from "../components/AlertCard";
 import Layout from "../components/Layout";
+import { Button, EmptyState, PageHeader, inputClass } from "../components/ui";
 
 type Filter = "open" | "resolved" | "all";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "open", label: "Open" },
+  { key: "resolved", label: "Resolved" },
+  { key: "all", label: "All" },
+];
 
 export default function AlertsPage() {
   const { user } = useAuth();
@@ -18,35 +24,37 @@ export default function AlertsPage() {
 
   return (
     <Layout>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Alerts</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Compliance obligations found by monitoring. Alerts close automatically when the data
-            shows the obligation is met.
-          </p>
-        </div>
-        <div className="flex rounded-md border bg-white p-0.5 text-sm">
-          {(["open", "resolved", "all"] as Filter[]).map((f) => (
+      <PageHeader
+        title="Alerts"
+        description="Expiring certificates, response deadlines and overdue reviews. An alert closes by itself once the documents show the obligation is met."
+      />
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div role="tablist" aria-label="Filter alerts" className="flex gap-1">
+          {FILTERS.map((f) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`rounded px-3 py-1 capitalize ${filter === f ? "bg-slate-900 text-white" : "text-slate-600"}`}
+              key={f.key}
+              role="tab"
+              aria-selected={filter === f.key}
+              onClick={() => setFilter(f.key)}
+              className={`rounded-full px-3.5 py-1.5 text-sm transition-colors ${
+                filter === f.key ? "bg-ink text-white" : "text-muted hover:bg-sheet hover:text-ink"
+              }`}
             >
-              {f}
+              {f.label}
             </button>
           ))}
         </div>
+        {user?.role === "admin" && <ScanControl />}
       </div>
 
-      {user?.role === "admin" && <ScanControl />}
-
-      <div className="mt-6 space-y-3">
-        {isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+      <div className="space-y-3">
+        {isLoading && <p className="text-muted">Loading alerts…</p>}
         {alerts?.length === 0 && (
-          <p className="rounded-lg border border-dashed bg-white p-8 text-center text-sm text-slate-500">
-            No {filter === "all" ? "" : filter} alerts.
-          </p>
+          <EmptyState
+            title={filter === "open" ? "No open alerts" : "No alerts here"}
+            body="Monitoring checks certificate validity, clarification deadlines and review times every hour."
+          />
         )}
         {alerts?.map((a) => <AlertCard key={a.id} alert={a} />)}
       </div>
@@ -54,7 +62,7 @@ export default function AlertsPage() {
   );
 }
 
-/** Admin: run the monitoring scan now, optionally "as of" a future date (dev demo only). */
+/** Admin: run monitoring now, optionally as of a future date (dev only, for demos). */
 function ScanControl() {
   const queryClient = useQueryClient();
   const [asOf, setAsOf] = useState("");
@@ -68,26 +76,26 @@ function ScanControl() {
   const r = scan.data;
 
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border bg-white px-4 py-3 text-sm">
-      <span className="font-medium text-slate-900">Monitoring scan</span>
-      <label className="flex items-center gap-2 text-slate-600">
-        as of
-        <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="rounded border px-2 py-1" />
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <label className="flex items-center gap-2 text-muted">
+        Check as of
+        <input
+          type="date"
+          value={asOf}
+          onChange={(e) => setAsOf(e.target.value)}
+          className={`${inputClass.replace("mt-1.5 ", "")} h-9 w-auto`}
+        />
       </label>
-      <button
-        onClick={() => scan.mutate()}
-        disabled={scan.isPending}
-        className="rounded-md bg-slate-900 px-3 py-1.5 text-white disabled:opacity-50"
-      >
-        Run scan
-      </button>
-      {asOf && <span className="text-xs text-amber-700">Simulated date (dev only)</span>}
+      <Button size="sm" onClick={() => scan.mutate()} disabled={scan.isPending}>
+        Run monitoring now
+      </Button>
+      {asOf && <span className="text-review">Simulated date, dev only</span>}
       {r && (
-        <span className="text-xs text-slate-500">
-          raised {r.raised} · overdue {r.overdue} · escalated {r.escalated} · resolved {r.resolved} · reopened {r.reopened}
+        <span className="w-full text-right text-muted">
+          {r.raised} raised, {r.overdue} overdue, {r.escalated} escalated, {r.resolved} resolved
         </span>
       )}
-      {scan.error && <span className="text-xs text-red-600">{scan.error.message}</span>}
+      {scan.error && <span className="w-full text-right text-fail">{scan.error.message}</span>}
     </div>
   );
 }

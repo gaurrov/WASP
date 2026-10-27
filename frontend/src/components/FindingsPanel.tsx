@@ -1,45 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, CircleCheck, CircleHelp, CircleX, FileText, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import {
   fetchFindings,
   humanize,
   reevaluate,
+  reviewFinding,
   type ApplicationDetail,
   type Finding,
   type FindingStatus,
   type Workflow,
-  reviewFinding,
 } from "../applications";
 import { useAuth } from "../auth";
+import { Button, Panel, Pill, formatValue, inputClass, type Tone } from "./ui";
 import { useInvalidateCase } from "./WorkflowPanel";
 
 const OPEN_STATUSES: FindingStatus[] = ["fail", "needs_review", "unable_to_determine"];
 
-const STATUS: Record<FindingStatus, { label: string; style: string; icon: string }> = {
-  fail: { label: "Fail", style: "bg-red-50 text-red-700 border-red-200", icon: "✕" },
-  needs_review: { label: "Needs review", style: "bg-amber-50 text-amber-900 border-amber-200", icon: "!" },
-  unable_to_determine: { label: "Can't determine", style: "bg-slate-100 text-slate-700 border-slate-200", icon: "?" },
-  pass: { label: "Pass", style: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: "✓" },
-  not_applicable: { label: "N/A", style: "bg-slate-50 text-slate-500 border-slate-200", icon: "–" },
+const STATUS: Record<FindingStatus, { label: string; tone: Tone; icon: typeof CircleX; color: string }> = {
+  fail: { label: "failed", tone: "fail", icon: CircleX, color: "text-fail" },
+  needs_review: { label: "need review", tone: "review", icon: TriangleAlert, color: "text-review" },
+  unable_to_determine: { label: "undetermined", tone: "neutral", icon: CircleHelp, color: "text-muted" },
+  pass: { label: "passed", tone: "pass", icon: CircleCheck, color: "text-pass" },
+  not_applicable: { label: "not applicable", tone: "neutral", icon: CircleHelp, color: "text-faint" },
 };
 
-function formatValue(value: unknown): string {
-  if (value && typeof value === "object") return Object.values(value).join(" · ");
-  return String(value);
-}
-
-export default function FindingsPanel({
-  app,
-  workflow,
-}: {
-  app: ApplicationDetail;
-  workflow?: Workflow;
-}) {
+export default function FindingsPanel({ app, workflow }: { app: ApplicationDetail; workflow?: Workflow }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isStaff = user?.role === "reviewer" || user?.role === "admin";
   const evaluating = app.status === "submitted" || app.status === "processing";
+  const canReview = isStaff && workflow?.waiting_for === "reviewer";
 
   const { data: findings } = useQuery({
     // A new evaluation round or status change means new findings.
@@ -64,56 +56,45 @@ export default function FindingsPanel({
   );
 
   return (
-    <section className="mt-6 rounded-lg border bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+    <Panel
+      title={user?.role === "institution" ? "Compliance check" : "Findings"}
+      actions={
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-medium text-slate-900">
-            {user?.role === "institution" ? "Compliance check" : "Findings"}
-          </h2>
-          {(["fail", "needs_review", "unable_to_determine", "pass"] as FindingStatus[]).map(
-            (s) =>
-              counts[s] ? (
-                <span key={s} className={`rounded-full border px-2 py-0.5 text-xs ${STATUS[s].style}`}>
-                  {counts[s]} {STATUS[s].label.toLowerCase()}
-                </span>
-              ) : null,
+          {(["fail", "needs_review", "unable_to_determine", "pass"] as FindingStatus[]).map((s) =>
+            counts[s] ? (
+              <Pill key={s} tone={STATUS[s].tone}>
+                {counts[s]} {STATUS[s].label}
+              </Pill>
+            ) : null,
+          )}
+          {canReview && (
+            <Button size="sm" variant="ghost" onClick={() => rerun.mutate()} disabled={rerun.isPending || evaluating}>
+              Re-run checks
+            </Button>
           )}
         </div>
-        {isStaff && workflow?.waiting_for === "reviewer" && (
-          <button
-            onClick={() => rerun.mutate()}
-            disabled={rerun.isPending || evaluating}
-            className="rounded-md border px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            Re-evaluate
-          </button>
-        )}
-      </div>
+      }
+    >
       {workflow && workflow.round > 1 && (
-        <p className="border-b bg-slate-50 px-4 py-2 text-xs text-slate-600">
-          Round {workflow.round}: re-checked {workflow.rechecked.length} of {workflow.total_rules}{" "}
-          rules affected by the changed documents ({workflow.rechecked.join(", ")}); the rest
-          carried over unchanged.
+        <p className="border-b bg-stamp-soft/60 px-5 py-2.5 text-sm">
+          <span className="font-bold">Round {workflow.round}.</span> Re-checked {workflow.rechecked.length} of{" "}
+          {workflow.total_rules} rules affected by the changed documents ({workflow.rechecked.join(", ")}). The
+          others are carried over unchanged.
         </p>
       )}
 
       {evaluating && (!findings || findings.length === 0) ? (
-        <p className="px-4 py-6 text-sm text-slate-500">Running compliance checks…</p>
+        <p className="px-5 py-8 text-muted">Running compliance checks…</p>
       ) : findings && findings.length > 0 ? (
         <ul className="divide-y">
           {findings.map((f) => (
-            <FindingRow
-              key={f.id}
-              finding={f}
-              canReview={isStaff && workflow?.waiting_for === "reviewer"}
-              applicationId={app.id}
-            />
+            <FindingRow key={f.id} finding={f} canReview={canReview} applicationId={app.id} />
           ))}
         </ul>
       ) : (
-        <p className="px-4 py-6 text-sm text-slate-500">No findings yet.</p>
+        <p className="px-5 py-8 text-muted">Checks run when the application is submitted.</p>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -128,116 +109,113 @@ function FindingRow({
 }) {
   const [open, setOpen] = useState(f.status !== "pass");
   const s = STATUS[f.status];
-  const expiring = f.details.expiring_soon === true;
+  const Icon = s.icon;
+  const hasBody = f.evidence.length > 0 || f.citations.length > 0 || f.provisional || canReview || !!f.review;
 
   return (
-    <li className="px-4 py-3">
-      <button onClick={() => setOpen(!open)} className="flex w-full items-start gap-3 text-left">
-        <span
-          className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border text-xs ${s.style}`}
-        >
-          {s.icon}
-        </span>
+    <li>
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        disabled={!hasBody}
+        className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors enabled:hover:bg-paper/60"
+      >
+        <Icon size={20} strokeWidth={2} className={`mt-0.5 shrink-0 ${s.color}`} aria-label={s.label} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-medium text-slate-900">{f.rule.title}</span>
-            <span className="text-xs text-slate-400">
-              {f.rule.code} v{f.rule.version} · {f.severity}
-            </span>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <span className="font-bold">{f.rule.title}</span>
             {f.provisional && (
               <span
                 title={f.rule.norm_note ?? undefined}
-                className="rounded border border-dashed border-amber-400 px-1.5 text-[11px] text-amber-800"
+                className="rounded-full border border-dashed border-review/60 px-2 py-0.5 text-xs text-review"
               >
-                provisional — rule not yet verified against APH
+                Provisional
               </span>
             )}
-            {expiring && (
-              <span className="rounded bg-amber-100 px-1.5 text-[11px] text-amber-900">
-                expiring soon
-              </span>
-            )}
+            {f.details.expiring_soon === true && <Pill tone="review">Expiring soon</Pill>}
             {f.review && (
-              <span
-                title={f.review.comment ?? undefined}
-                className={`rounded px-1.5 text-[11px] ${
-                  f.review.outcome === "override" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700"
-                }`}
-              >
-                {f.review.outcome === "override" ? "overridden" : "confirmed"} by {f.review.reviewer}
-              </span>
+              <Pill tone={f.review.outcome === "override" ? "stamp" : "neutral"}>
+                {f.review.outcome === "override" ? "Overridden" : "Confirmed"} by {f.review.reviewer}
+              </Pill>
             )}
           </div>
-          <p className="mt-0.5 text-sm text-slate-600">{f.reason}</p>
+          <p className="mt-1 text-[15px] text-ink/80">{f.reason}</p>
         </div>
+        <span className="hidden shrink-0 pt-0.5 text-xs text-faint sm:block">{f.rule.code}</span>
+        {hasBody && (
+          <ChevronDown
+            size={18}
+            className={`mt-0.5 shrink-0 text-faint transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        )}
       </button>
 
-      {open && (f.evidence.length > 0 || f.citations.length > 0 || f.provisional || canReview) && (
-        <div className="mt-3 space-y-3 pl-8">
+      {open && hasBody && (
+        <div className="space-y-4 pr-5 pb-5 pl-[3.25rem]">
           {f.evidence.length > 0 && (
             <div>
-              <div className="text-xs font-medium text-slate-500">Evidence</div>
-              <div className="mt-1 flex flex-wrap gap-1.5">
+              <h4 className="text-sm text-muted">Evidence</h4>
+              <ul className="mt-1.5 flex flex-wrap gap-2">
                 {f.evidence.map((e) => (
-                  <Link
-                    key={e.fact_id}
-                    to={`/documents/${e.document_id}?fact=${e.fact_id}`}
-                    className={`rounded border px-2 py-1 text-xs hover:border-slate-400 ${
-                      e.low_confidence ? "border-amber-300 bg-amber-50" : "bg-slate-50"
-                    }`}
-                  >
-                    <span className="text-slate-500">{e.filename}</span>{" "}
-                    <span className="text-slate-400">· {humanize(e.field_name)}:</span>{" "}
-                    <span className="text-slate-900">{formatValue(e.value)}</span>
-                    {e.low_confidence && (
-                      <span className="ml-1 text-amber-800">({Math.round(e.confidence * 100)}%)</span>
-                    )}
-                  </Link>
+                  <li key={e.fact_id}>
+                    <Link
+                      to={`/documents/${e.document_id}?fact=${e.fact_id}`}
+                      className={`inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border px-2.5 py-1.5 text-sm transition-colors hover:border-stamp ${
+                        e.low_confidence ? "border-review/40 bg-review-soft" : "bg-paper"
+                      }`}
+                    >
+                      <FileText size={14} className="text-faint" aria-hidden />
+                      <span className="text-muted">{humanize(e.field_name)}:</span>
+                      <span className="font-bold">{formatValue(e.value)}</span>
+                      {e.low_confidence && (
+                        <span className="text-review">{Math.round(e.confidence * 100)}% sure</span>
+                      )}
+                    </Link>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
 
           {f.citations.length > 0 && (
             <div>
-              <div className="text-xs font-medium text-slate-500">
-                {f.citations.some((c) => c.verified) ? "Regulation" : "Possibly relevant handbook passages (unverified)"}
-              </div>
-              <div className="mt-1 space-y-2">
+              <h4 className="text-sm text-muted">
+                {f.citations.some((c) => c.verified) ? "Regulation" : "Possibly relevant handbook passages, not yet verified"}
+              </h4>
+              <div className="mt-1.5 space-y-2">
                 {f.citations.map((c) => (
                   <blockquote
                     key={c.chunk_id}
-                    className={`rounded border-l-4 bg-slate-50 px-3 py-2 text-xs text-slate-700 ${
-                      c.verified ? "border-blue-500" : "border-slate-300"
-                    }`}
+                    className={`border-l-[3px] bg-paper/70 py-2 pr-3 pl-4 text-sm ${c.verified ? "border-stamp" : "border-rule-strong"}`}
                   >
-                    <div className="mb-1 font-medium text-slate-900">
+                    <p className="font-bold">
                       {c.source_title} {c.source_version}
-                      {c.section && ` · § ${c.section}`}
+                      {c.section && `, §${c.section}`}
                       {c.heading && ` ${c.heading}`}
-                      {c.page && ` · p. ${c.page}`}
-                      {c.verified && <span className="ml-2 text-blue-700">verified clause</span>}
-                    </div>
-                    <p className="line-clamp-4 whitespace-pre-line">{c.text}</p>
+                      {c.page && `, page ${c.page}`}
+                    </p>
+                    <p className="mt-1 line-clamp-4 whitespace-pre-line text-ink/80">{c.text}</p>
                   </blockquote>
                 ))}
               </div>
             </div>
           )}
 
-          {f.review?.comment && (
-            <p className="text-xs text-slate-600">
-              <span className="font-medium">Reviewer:</span> {f.review.comment}
+          {f.provisional && f.rule.norm_note && (
+            <p className="text-sm text-muted">
+              <span className="font-bold text-ink">Where this norm comes from.</span> {f.rule.norm_note}
             </p>
-          )}
-          {canReview && OPEN_STATUSES.includes(f.status) && (
-            <ReviewControls findingId={f.id} applicationId={applicationId} />
           )}
 
-          {f.provisional && f.rule.norm_note && (
-            <p className="text-xs text-slate-500">
-              <span className="font-medium">Where this norm comes from:</span> {f.rule.norm_note}
+          {f.review?.comment && (
+            <p className="border-l-[3px] border-stamp pl-4 text-sm">
+              <span className="font-bold">{f.review.reviewer}:</span> {f.review.comment}
             </p>
+          )}
+
+          {canReview && OPEN_STATUSES.includes(f.status) && (
+            <ReviewControls findingId={f.id} applicationId={applicationId} />
           )}
         </div>
       )}
@@ -256,28 +234,27 @@ function ReviewControls({ findingId, applicationId }: { findingId: string; appli
     },
   });
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
-      <input
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Comment (required to override)"
-        className="min-w-48 flex-1 rounded border px-2 py-1 text-xs"
-      />
-      <button
-        onClick={() => review.mutate("confirm")}
-        disabled={review.isPending}
-        className="rounded border px-2 py-1 text-xs text-slate-800 hover:bg-slate-50"
-      >
+    <div className="flex flex-wrap items-end gap-2 rounded-[var(--radius-control)] border border-dashed border-rule-strong p-3">
+      <label className="min-w-56 flex-1">
+        <span className="text-sm font-bold">Your review</span>
+        <input
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Reason (required to override)"
+          className={inputClass}
+        />
+      </label>
+      <Button onClick={() => review.mutate("confirm")} disabled={review.isPending}>
         Confirm deficiency
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="primary"
         onClick={() => review.mutate("override")}
         disabled={review.isPending || comment.trim().length < 5}
-        className="rounded border border-violet-300 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50 disabled:opacity-40"
       >
         Override
-      </button>
-      {review.error && <span className="text-xs text-red-600">{review.error.message}</span>}
+      </Button>
+      {review.error && <p className="w-full text-sm text-fail">{review.error.message}</p>}
     </div>
   );
 }

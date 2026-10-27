@@ -1,137 +1,167 @@
-# WASP — Workflow Automation System Project
+<div align="center">
 
-**SIH26262 · Integrated AICTE Approval Workflow Automation, Compliance Monitoring and Alert Management System**
+<img src="docs/images/mark.svg" width="72" height="72" alt="WASP seal">
 
-WASP automates the scrutiny of AICTE approval applications. It reads institution documents
-(including scans), extracts facts with their exact location on the page, checks them against
-versioned rules tied to clauses of the Approval Process Handbook, routes anything uncertain or
-deficient to a human reviewer through a stateful workflow, and keeps an audit trail of every step.
+# WASP
 
-**Core principle: AI extracts and interprets, deterministic rules decide, humans approve.**
-Every finding links to its evidence (document, page, value, confidence) and, once verified, to the
-regulatory clause it enforces. Nothing uncertain is silently treated as a pass.
+**AICTE approval scrutiny, with the evidence attached.**
 
-See [docs/PLAN.md](docs/PLAN.md) for scope, milestones, team split and the demo script.
+Workflow Automation System Project, built for Smart India Hackathon 2026, problem statement **SIH26262**<br>
+*Integrated AICTE Approval Workflow Automation, Compliance Monitoring and Alert Management System*
 
----
+[![CI](https://github.com/gaurrov/WASP/actions/workflows/ci.yml/badge.svg)](https://github.com/gaurrov/WASP/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-18263d)
+![React 19](https://img.shields.io/badge/React-19-18263d)
+![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-18263d)
+![LangGraph](https://img.shields.io/badge/workflow-LangGraph-4338a0)
+![Runs offline](https://img.shields.io/badge/runs-offline-2f6b4f)
 
-## Contents
+[Quick start](#quick-start) &nbsp;|&nbsp; [Demo playbook](docs/DEMO.md) &nbsp;|&nbsp; [Measured results](docs/METRICS.md) &nbsp;|&nbsp; [Build plan](docs/PLAN.md) &nbsp;|&nbsp; [Module reference](#module-reference)
 
-- [How it works](#how-it-works)
-- [Quick start](#quick-start)
-- [Demo walkthrough](#demo-walkthrough)
-- [Module reference](#module-reference) — [backend](#backend-backendapp) · [frontend](#frontend-frontendsrc) · [infrastructure](#infrastructure)
-- [Data model](#data-model)
-- [API reference](#api-reference)
-- [Background jobs](#background-jobs)
-- [Configuration](#configuration)
-- [Development](#development)
-- [Testing and CI](#testing-and-ci)
-- [Known limitations](#known-limitations)
+</div>
 
----
+<br>
+
+![An approved case in WASP: findings with evidence, the reviewer's reasons, and the decision stamp](docs/images/case.png)
+
+## What it does
+
+Institutions applying to AICTE upload dozens of documents: faculty lists, degree certificates,
+fire safety certificates, land and building records. Reviewers then check them by hand against
+the Approval Process Handbook. WASP does the reading and the cross-checking, and leaves the
+decision with people.
+
+- **Reads every document, including scans.** Each extracted value keeps the page and position it
+  came from, and how sure the reading is. Anything uncertain is flagged, never trusted.
+- **Checks it against versioned rules.** Deterministic checks find missing documents, faculty
+  without certificates, mismatched names, faculty shortfalls and expiring certificates. Rules that
+  encode an AICTE norm cite the handbook clause, and stay *provisional* until someone verifies it.
+- **Runs the case to a decision.** A reviewer confirms or overrides each finding, asks for a
+  clarification, or decides. When the institution resubmits, only the checks its changes can
+  affect run again.
+- **Keeps watching after approval.** Expiring certificates, overdue responses and slow reviews
+  become alerts that escalate over time and close only when the documents show the obligation is
+  met.
+- **Records everything.** Every upload, check, review, decision and alert is in the audit trail.
+
+The principle throughout: **AI extracts and interprets, deterministic rules decide, people approve.**
+
+## Results
+
+Measured on the synthetic demo set with outbound internet blocked (details and caveats in
+[docs/METRICS.md](docs/METRICS.md)):
+
+| Measure | Result |
+|---|---|
+| Document type identified correctly | **100%** of 43 documents, including 3 scans |
+| Fields read correctly | **99.4%**; the rest were flagged for a person, **0% silently wrong** |
+| Planted problems caught | **6 of 6**: missing document, uncertified faculty, misspelled name, poor scan, faculty shortfall, expiring NOC |
+| Re-checking after a fix | **3 of 7** rules re-run; the other findings carried over unchanged |
+| Full demo story, end to end | about **8 seconds**, passing 5 of 5 rehearsals |
 
 ## How it works
 
-```
- Institution uploads PDFs/scans
-            │
-            ▼
- ┌─────────────────────┐   ┌──────────────────────────────┐
- │ Document intelligence│──▶│ ExtractedFact                │  value · page · bbox · confidence
- │ PyMuPDF / Tesseract  │   │ (provenance for every value) │
- │ classify · extract   │   └──────────────┬───────────────┘
- └─────────────────────┘                  │
-                                          ▼
- ┌─────────────────────┐   ┌──────────────────────────────┐   ┌──────────────────────────┐
- │ Regulatory RAG       │──▶│ Rules engine (rules.yaml)    │──▶│ Finding                  │
- │ APH clauses, hybrid  │   │ deterministic evaluators,    │   │ pass/fail/needs_review/  │
- │ keyword + semantic   │   │ low-confidence guard          │   │ unable_to_determine      │
- └─────────────────────┘   └──────────────────────────────┘   │ + evidence + citations   │
-                                                                └────────────┬─────────────┘
-                                                                             ▼
-                         ┌──────────────────────────────────────────────────────────────────┐
-                         │ LangGraph case workflow (checkpointed in Postgres)               │
-                         │ wait for extraction → evaluate → reviewer ─┬─ approve / reject   │
-                         │        ▲                                   └─ clarification ──┐  │
-                         │        └──── institution resubmits: re-check affected rules ◀─┘  │
-                         └──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A[Institution uploads<br>PDFs and scans] --> B[Document intelligence<br>PyMuPDF and Tesseract OCR]
+    B --> C[(Extracted facts<br>value, page, box, confidence)]
+    H[Approval Process Handbook] --> I[Clause index<br>keyword + semantic]
+    C --> D[Rules engine<br>rules.yaml]
+    I --> D
+    D --> E[Findings<br>with evidence and citations]
+    E --> F{Reviewer}
+    F -- approve or reject --> G[Decision<br>and audit trail]
+    F -- ask for clarification --> J[Institution fixes<br>and resubmits]
+    J -- only affected rules re-run --> D
+    G --> K[Monitoring<br>expiry, deadlines, SLAs]
+    K --> L[Alerts that close<br>when the data says so]
 ```
 
-1. **Upload.** Files go to S3-compatible storage; type is verified by file signature, duplicates
-   are rejected, replacements create a new version.
-2. **Extraction** (Celery, `documents` queue). Native PDF text is used where present; pages without
-   text are OCR'd. A classifier checks the file is what the institution says it is. Field
-   extractors record each value with its page, bounding box and confidence.
+1. **Upload.** Files go to S3-compatible storage. The type is verified from the file itself,
+   duplicates are rejected, and a replacement creates a new version.
+2. **Extraction.** Native PDF text is used where present and pages without text are OCR'd. A
+   classifier checks each file is what the institution says it is.
 3. **Evaluation.** On submission the case workflow waits for extraction, then runs the rules.
-   Each rule produces a finding with the facts it relied on and the handbook passages it cites.
-4. **Review.** The workflow pauses for a reviewer, who confirms or overrides findings, requests
-   clarification, or decides. A clarification pauses the case until the institution resubmits;
-   only rules affected by the changed documents are re-checked.
-5. **Monitoring.** Scheduled and event-driven scans turn obligations (expiring certificates,
-   response deadlines, review SLAs) into deduplicated alerts that escalate over time and close
-   only when the data shows the obligation is met.
-6. **Audit.** Every transition, upload, extraction, review, decision and alert is an append-only event.
+   Each finding records the facts it relied on and the handbook passages it cites.
+4. **Review.** The workflow pauses for a reviewer. A clarification request pauses it again until
+   the institution resubmits.
+5. **Monitoring.** Scheduled and event-driven scans turn obligations into deduplicated alerts.
+6. **Audit.** Every transition is an append-only event.
 
----
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/evidence.png" alt="Evidence viewer"><br><b>Evidence viewer.</b> Every value is boxed where it was read; uncertain readings are amber.</td>
+    <td width="50%"><img src="docs/images/overview.png" alt="Reviewer overview"><br><b>Overview.</b> Cases by stage, the reviewer's work list, and open alerts.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/case.png" alt="Case file"><br><b>Case file.</b> Findings, documents and audit trail, with the decision panel alongside.</td>
+    <td width="50%"><img src="docs/images/sign-in.png" alt="Sign in"><br><b>Sign in.</b> Institution, reviewer and administrator roles.</td>
+  </tr>
+</table>
 
 ## Quick start
 
 Requires Docker Desktop (Compose v2).
 
 ```bash
+git clone https://github.com/gaurrov/WASP.git && cd WASP
 docker compose up --build
 ```
 
 | Service | URL |
 |---|---|
 | Web app | http://localhost:5173 |
-| API + Swagger docs | http://localhost:8000/docs |
+| API and interactive docs | http://localhost:8000/docs |
 | S3 storage (SeaweedFS) | http://localhost:8333 |
-| Postgres (pgvector) | localhost:5432 (`wasp` / `wasp`) |
+| PostgreSQL with pgvector | localhost:5432 (`wasp` / `wasp`) |
 
-On startup the backend runs migrations, creates the storage bucket, syncs `rules.yaml`, sets up
-the workflow checkpoint tables and seeds demo accounts (password `wasp1234`):
+On first start the backend runs migrations, creates the storage bucket, syncs the rules and seeds
+three demo accounts. The password for all of them is `wasp1234`.
 
 | Role | Email | Can |
 |---|---|---|
-| Institution | institution@wasp.dev | create applications, upload, submit, respond to clarifications |
-| Reviewer | reviewer@wasp.dev | review queue, findings, clarifications, decisions, handbook search |
-| Admin | admin@wasp.dev | everything a reviewer can, plus upload handbooks and verify rules |
+| Institution | institution@wasp.dev | Create applications, upload documents, submit, respond to clarifications |
+| Reviewer | reviewer@wasp.dev | Review queue, findings, clarifications, decisions, handbook search |
+| Administrator | admin@wasp.dev | Everything a reviewer can, plus load handbooks and verify rules |
 
-The first handbook ingestion downloads a ~70 MB embedding model into the `models` volume (once).
-
----
-
-## Demo walkthrough
-
-The full playbook (preparation, 7-minute run sheet, fallbacks, Q&A) is in
-[docs/DEMO.md](docs/DEMO.md); measured numbers are in [docs/METRICS.md](docs/METRICS.md).
+To try the full story with prepared documents:
 
 ```bash
-docker compose exec backend python -m app.demo prefetch     # demo PDFs + embedding model
-docker compose exec backend python -m app.demo preflight    # is everything up?
-docker compose exec backend python -m app.demo load --stage draft   # preload the application
+docker compose exec backend python -m app.demo prefetch           # demo PDFs and the embedding model
+docker compose exec backend python -m app.demo load --stage draft # an application, ready to submit
 ```
 
-Or by hand:
+Then follow the 7-minute run sheet in [docs/DEMO.md](docs/DEMO.md).
 
-1. **Institution** → *New application* (Extension of Approval, 2026-27, intake 120, 20 faculty).
-   Upload everything from `data/synthetic/abc_institute/` **except** `building_certificate.pdf`
-   and `certificate_02_corrected.pdf`, then *Submit*.
-2. **Reviewer** → *Review queue* → the application. Findings show: missing building certificate,
-   3 faculty without certificates, "Dr. S. Priya" vs "S. Priyaa", a low-confidence OCR name on
-   the poor scan, 20 faculty against 24 required (provisional rule), fire NOC expiring in 30 days.
-   Click an evidence chip to open the page with that value highlighted.
-3. **Reviewer** → *Request clarification*.
-4. **Institution** → replace `certificate_02.pdf` with `certificate_02_corrected.pdf`, upload
-   `building_certificate.pdf`, *Resubmit*.
-5. **Reviewer** → "Round 2: re-checked 3 of 7 rules"; the rest carried over. Override the remaining
-   findings with justifications, then *Approve*. The audit trail shows the whole story.
-6. **Institution** → *Alerts* (badge): "Fire safety NOC expires in 30 days". *Upload renewal* →
-   upload a NOC with a later validity date; the alert resolves itself.
-7. **Admin** → *Alerts* → run a scan *as of* a future date to show alerts going overdue and
-   escalating, or a review-SLA breach appearing for reviewers.
+## Tech stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| API | FastAPI, SQLAlchemy 2, Alembic, Pydantic | Typed endpoints and reviewed migrations |
+| Workflow | LangGraph with a PostgreSQL checkpointer | Cases wait days for people and resume in any worker |
+| Background work | Celery with Redis, Celery beat | OCR, indexing, workflow events and scheduled monitoring off the request path |
+| Document intelligence | PyMuPDF, Tesseract OCR, Pillow | Native text where possible, OCR with per-word confidence where not |
+| Retrieval | PostgreSQL full-text + pgvector, fastembed (`bge-small-en-v1.5`, ONNX) | Hybrid clause search that runs on a laptop, offline |
+| Storage | PostgreSQL 17, SeaweedFS (S3-compatible) | One database for records and vectors; documents in object storage |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, TanStack Query | Self-hosted font and icons, so the UI works offline too |
+| Delivery | Docker Compose, GitHub Actions | One command to run; CI on every push |
+
+## Project layout
+
+```
+WASP/
+├── backend/
+│   ├── app/            FastAPI app and domain modules (see Module reference)
+│   ├── alembic/        database migrations
+│   └── tests/          pytest suite (isolated test database and bucket)
+├── frontend/src/       React app: pages, components, typed API client
+├── docs/               build plan, demo playbook, measured metrics, screenshots
+├── infra/              service configuration (SeaweedFS credentials)
+├── docker-compose.yml          the full stack
+└── docker-compose.offline.yml  override that blocks internet access, for the venue
+```
 
 ---
 
@@ -268,7 +298,10 @@ in `obligations.py`, add it to `DETECTORS`, give it a stable `dedup_key`, and ad
 
 ### Frontend (`frontend/src/`)
 
-React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
+React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state, lucide icons.
+The design is a case-file tool for regulators: cool paper and navy ink, with a single accent,
+violet stamp ink, kept for decisions, focus and the evidence currently selected. The type is
+Atkinson Hyperlegible Next, designed by the Braille Institute for legibility.
 
 | File | Does |
 |---|---|
@@ -276,20 +309,21 @@ React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
 | `api.ts` | Fetch wrapper (bearer token, error parsing), login |
 | `auth.tsx` | `AuthProvider` / `useAuth()` backed by `/auth/me` |
 | `applications.ts` | Typed API client for every endpoint |
-| `pages/Login.tsx` | Sign-in with demo-account shortcuts (dev only) |
-| `pages/Dashboard.tsx` | Role-specific entry points |
+| `index.css` | Design tokens (Tailwind `@theme`): ink, paper, stamp violet, status tones; self-hosted font; focus and reduced-motion rules |
+| `components/ui.tsx` | Shared primitives: buttons, panels, pills, notices, fields, page header, the decision **stamp**, date and value formatting, case references |
+| `pages/Login.tsx` | Sign-in, illustrated with a real finding; demo-account shortcuts in dev |
+| `pages/Dashboard.tsx` | Overview: cases by stage, the reviewer's work list or the institution's applications and next steps, open alerts |
 | `pages/ApplicationsList.tsx` | Institution's applications / reviewer's queue |
 | `pages/NewApplication.tsx` | Create draft with declared values |
-| `pages/ApplicationDetail.tsx` | Checklist with upload/replace/delete, processing status, findings, case banner, audit trail |
+| `pages/ApplicationDetail.tsx` | The case file: header with reference and decision stamp, findings, documents (long groups collapse; files needing attention stay visible), audit trail, and a sticky panel for the next step |
 | `pages/DocumentViewer.tsx` | **Evidence viewer**: page images with clickable bounding boxes per extracted value; `?fact=` preselects |
 | `pages/RulesPage.tsx` | Rules, their norms and verification; find and verify clauses |
 | `pages/HandbookPage.tsx` | Upload/index handbook editions; search them |
 | `pages/AlertsPage.tsx` | Alert center (open / resolved / all); admin scan with optional simulated date |
 | `components/AlertCard.tsx` | Alert with severity, status, due date; acknowledge / upload renewal / resolve with note |
-| `components/Layout.tsx` | Header and role-aware navigation |
+| `components/Layout.tsx` | Left rail with role-aware navigation and alert count; horizontal on small screens |
 | `components/FindingsPanel.tsx` | Findings with evidence, citations, provisional/expiring badges, per-finding review |
-| `components/WorkflowPanel.tsx` | Clarification/decision banners, reviewer actions, audit timeline |
-| `components/StatusBadge.tsx` | Application status pill |
+| `components/WorkflowPanel.tsx` | Clarification and decision notices, the reviewer's decision panel, audit timeline |
 
 ### Infrastructure
 
@@ -307,14 +341,19 @@ React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
 
 ## Data model
 
-```
-institutions ─┬─ users
-              └─ applications ─┬─ documents ── extracted_facts
-                               ├─ findings ── review_decisions
-                               ├─ alerts
-                               └─ workflow_events
-regulatory_sources ── regulatory_chunks          compliance_rules ─▶ findings
-                                                 (verified rule ─▶ source + section)
+```mermaid
+erDiagram
+    INSTITUTION ||--o{ USER : has
+    INSTITUTION ||--o{ APPLICATION : files
+    APPLICATION ||--o{ DOCUMENT : contains
+    DOCUMENT ||--o{ EXTRACTED_FACT : yields
+    APPLICATION ||--o{ FINDING : receives
+    COMPLIANCE_RULE ||--o{ FINDING : produces
+    FINDING ||--o{ REVIEW_DECISION : "reviewed in"
+    APPLICATION ||--o{ ALERT : raises
+    APPLICATION ||--o{ WORKFLOW_EVENT : records
+    REGULATORY_SOURCE ||--o{ REGULATORY_CHUNK : "split into"
+    COMPLIANCE_RULE }o--o| REGULATORY_SOURCE : "verified against"
 ```
 
 - Findings are versioned: re-evaluation marks old findings `is_current = false`; incremental
@@ -503,3 +542,10 @@ small PRs; keep `main` demo-able.
   so a delivery channel means sending on `alert_raised` / `alert_escalated` events.
 - **Approved applications aren't re-evaluated** when a renewal is uploaded: monitoring clears the
   alert, but findings stay as they were at decision time.
+
+
+---
+
+<div align="center">
+<sub>Built for Smart India Hackathon 2026, SIH26262. The demo uses synthetic documents only; no real institution's records are included.</sub>
+</div>

@@ -54,15 +54,15 @@ Password for all: `wasp1234`. Have `data/synthetic/abc_institute/` open in the f
 |---|---|---|---|---|
 | 1 | 0:00 | Institution | Open the application. Point at the checklist, field counts, "3 to verify" on `certificate_09.pdf`. | "An institution has uploaded 41 documents. WASP has already read every one: native text, and OCR for scans." |
 | 2 | 0:40 | Institution | Click `certificate_09.pdf`. Click the amber *Holder name*. | "This is a bad photocopy. Every value is linked to where it was read on the page, with a confidence. Below 80% it's never trusted: it goes to a human." |
-| 3 | 1:20 | Institution | Back → **Submit for review** → accept the missing-document warning. | "They submit with a document missing. We don't block; we record it." |
+| 3 | 1:20 | Institution | Back → **Submit for review** (side panel) → accept the missing-document warning. | "They submit with a document missing. We don't block; we record it." |
 | 4 | 1:40 | Reviewer | Review queue → the application. Walk the findings top-down. Click one evidence chip. | "Seven rules ran in under a second. Missing building certificate. 3 of 20 faculty have no certificate. 'S. Priya' versus 'S. Priyaa'. 20 faculty for 480 students against 1:20. Fire NOC expiring in 30 days. Each finding shows its evidence, and the clause it enforces." |
 | 5 | 2:50 | Reviewer | Point at a **provisional** badge and its *where this norm comes from*. | "Rules encoding AICTE norms stay provisional until an officer verifies them against the handbook clause. The system never pretends a number is official." |
 | 6 | 3:10 | Reviewer | **Request clarification…** → type a short message → send. | "The case is now paused, waiting for the institution, and the clock starts on their response." |
 | 7 | 3:30 | Institution | Refresh. Banner + alert badge. **Replace** `certificate_02.pdf` with `certificate_02_corrected.pdf`; **Upload** `building_certificate.pdf` → **Resubmit**. | "They fix exactly what was asked." |
 | 8 | 4:15 | Reviewer | Refresh. Point at **"Round 2: re-checked 3 of 7 rules"**. | "Only the rules those two documents can affect re-ran. The other four results are carried over, untouched. That's what makes continuous checking cheap at scale." |
-| 9 | 4:45 | Reviewer | Override the remaining findings with one-line reasons → **Approve…** → reason → confirm. | "Approval is impossible until every open finding has a human decision with a reason. AI extracts and checks; people decide." |
+| 9 | 4:45 | Reviewer | Override the remaining findings with one-line reasons → **Approve…** (decision panel) → reason → **Approve application**. | "Approval is impossible until every open finding has a human decision with a reason. AI extracts and checks; people decide." |
 | 10 | 5:25 | Institution | **Alerts** badge → "Fire safety NOC expires in 30 days". | "Approval isn't the end. WASP keeps watching." |
-| 11 | 5:45 | Admin | **Alerts** → scan *as of* a date 40 days ahead → **Run scan**. | "Fast-forward 40 days: the NOC has expired, the alert is critical and escalated." |
+| 11 | 5:45 | Admin | **Alerts** → *Check as of* a date 40 days ahead → **Run monitoring now**. | "Fast-forward 40 days: the NOC has expired, the alert is critical and escalated." |
 | 12 | 6:10 | Institution | Alert → **Upload renewal** → `fire_noc_renewed.pdf`. Show it moved to *Resolved*. | "A renewed certificate closes the alert by itself. Nobody ticks a box; the data proves it." |
 | 13 | 6:35 | Reviewer | Scroll to the **Audit trail**. | "Every upload, extraction, rule run, review, decision and alert, with who and when." |
 
