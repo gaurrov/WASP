@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Search } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { fetchSources, searchRegulations, uploadSource } from "../applications";
 import { useAuth } from "../auth";
 import Layout from "../components/Layout";
-
-const inputClass = "mt-1 w-full rounded-md border px-3 py-2 text-sm";
+import { Button, EmptyState, ErrorText, Field, PageHeader, Panel, Pill, formatDate, inputClass } from "../components/ui";
 
 export default function HandbookPage() {
   const { user } = useAuth();
@@ -12,60 +12,59 @@ export default function HandbookPage() {
     queryKey: ["sources"],
     queryFn: fetchSources,
     refetchInterval: (q) =>
-      q.state.data?.some((s) => s.ingest_status === "pending" || s.ingest_status === "processing")
-        ? 2000
-        : false,
+      q.state.data?.some((s) => s.ingest_status === "pending" || s.ingest_status === "processing") ? 2000 : false,
   });
 
   return (
     <Layout>
-      <h1 className="text-xl font-semibold text-slate-900">Regulatory handbook</h1>
-      <p className="mt-1 max-w-3xl text-sm text-slate-500">
-        Official sources are split into clauses and indexed for hybrid (keyword + semantic) search.
-        Findings cite these clauses; each source applies only within its effective dates.
-      </p>
+      <PageHeader
+        title="Regulatory handbook"
+        description="Official sources, split into clauses and searchable by wording or meaning. Findings cite these clauses, and each edition applies only within its effective dates."
+      />
 
-      <section className="mt-6 rounded-lg border bg-white">
-        <h2 className="border-b px-4 py-3 text-sm font-medium text-slate-900">Sources</h2>
-        {sources?.length ? (
-          <ul className="divide-y">
-            {sources.map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                <div>
-                  <span className="font-medium text-slate-900">{s.title}</span>{" "}
-                  <span className="text-slate-500">{s.version}</span>
-                  <div className="text-xs text-slate-500">
-                    In force {s.effective_from ?? "—"} to {s.effective_to ?? "—"}
-                    {s.source_url && (
-                      <>
-                        {" · "}
-                        <a href={s.source_url} target="_blank" rel="noreferrer" className="underline">
-                          official link
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <SearchBox hasSources={!!sources?.length} />
+
+        <div className="space-y-6">
+          <Panel title="Sources">
+            {sources?.length ? (
+              <ul className="divide-y">
+                {sources.map((s) => (
+                  <li key={s.id} className="px-5 py-3.5">
+                    <p className="font-bold">
+                      {s.title} {s.version}
+                    </p>
+                    <p className="text-sm text-muted">
+                      In force {formatDate(s.effective_from)} to {formatDate(s.effective_to)}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                      {s.ingest_status === "done" ? (
+                        <Pill tone="pass">{s.chunk_count} clauses indexed</Pill>
+                      ) : s.ingest_status === "failed" ? (
+                        <Pill tone="fail">Indexing failed</Pill>
+                      ) : (
+                        <Pill tone="info">Indexing…</Pill>
+                      )}
+                      {s.source_url && (
+                        <a href={s.source_url} target="_blank" rel="noreferrer" className="text-stamp hover:underline">
+                          Official copy
                         </a>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <span className="text-xs text-slate-600">
-                  {s.ingest_status === "done"
-                    ? `${s.chunk_count} clauses indexed`
-                    : s.ingest_status === "failed"
-                      ? `failed: ${s.ingest_error}`
-                      : "indexing…"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="px-4 py-6 text-sm text-slate-500">
-            No sources yet. Upload the AICTE Approval Process Handbook (APH) 2024-27 PDF to enable
-            citations and rule verification.
-          </p>
-        )}
-        {user?.role === "admin" && <UploadForm />}
-      </section>
-
-      <SearchBox />
+                      )}
+                    </div>
+                    {s.ingest_error && <p className="mt-1 text-sm text-fail">{s.ingest_error}</p>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-4 text-sm text-muted">
+                No handbook loaded yet. Until one is, findings can't cite clauses and AICTE norms stay
+                provisional.
+              </p>
+            )}
+          </Panel>
+          {user?.role === "admin" && <UploadForm />}
+        </div>
+      </div>
     </Layout>
   );
 }
@@ -96,57 +95,49 @@ function UploadForm() {
   };
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-3 border-t bg-slate-50 px-4 py-4 sm:grid-cols-2">
-      <label className="block sm:col-span-2">
-        <span className="text-xs font-medium text-slate-700">PDF</span>
-        <input
-          type="file"
-          accept="application/pdf"
-          required
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="mt-1 block w-full text-sm"
-        />
-      </label>
-      <label className="block">
-        <span className="text-xs font-medium text-slate-700">Title</span>
-        <input required value={fields.title} onChange={set("title")} className={inputClass} />
-      </label>
-      <label className="block">
-        <span className="text-xs font-medium text-slate-700">Version</span>
-        <input required value={fields.version} onChange={set("version")} className={inputClass} />
-      </label>
-      <label className="block">
-        <span className="text-xs font-medium text-slate-700">Effective from</span>
-        <input type="date" value={fields.effective_from} onChange={set("effective_from")} className={inputClass} />
-      </label>
-      <label className="block">
-        <span className="text-xs font-medium text-slate-700">Effective to</span>
-        <input type="date" value={fields.effective_to} onChange={set("effective_to")} className={inputClass} />
-      </label>
-      <label className="block sm:col-span-2">
-        <span className="text-xs font-medium text-slate-700">Official URL</span>
-        <input value={fields.source_url} onChange={set("source_url")} className={inputClass} />
-      </label>
-      {upload.error && <p className="text-sm text-red-600 sm:col-span-2">{upload.error.message}</p>}
-      <div className="sm:col-span-2">
-        <button
-          type="submit"
-          disabled={!file || upload.isPending}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
+    <Panel title="Add an edition">
+      <form onSubmit={onSubmit} className="space-y-4 px-5 py-4">
+        <Field label="PDF">
+          <input
+            type="file"
+            accept="application/pdf"
+            required
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="mt-1.5 block w-full text-sm file:mr-3 file:rounded-[var(--radius-control)] file:border file:border-rule-strong file:bg-sheet file:px-3 file:py-1.5 file:text-sm file:font-medium"
+          />
+        </Field>
+        <Field label="Title">
+          <input required value={fields.title} onChange={set("title")} className={inputClass} />
+        </Field>
+        <Field label="Edition">
+          <input required value={fields.version} onChange={set("version")} className={inputClass} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="In force from">
+            <input type="date" value={fields.effective_from} onChange={set("effective_from")} className={inputClass} />
+          </Field>
+          <Field label="Until">
+            <input type="date" value={fields.effective_to} onChange={set("effective_to")} className={inputClass} />
+          </Field>
+        </div>
+        <Field label="Official URL">
+          <input value={fields.source_url} onChange={set("source_url")} className={inputClass} />
+        </Field>
+        {upload.error && <ErrorText>{upload.error.message}</ErrorText>}
+        <Button type="submit" variant="primary" disabled={!file || upload.isPending} className="w-full">
           {upload.isPending ? "Uploading…" : "Upload and index"}
-        </button>
-      </div>
-    </form>
+        </Button>
+      </form>
+    </Panel>
   );
 }
 
-function SearchBox() {
+function SearchBox({ hasSources }: { hasSources: boolean }) {
   const [q, setQ] = useState("");
   const search = useMutation({ mutationFn: searchRegulations });
 
   return (
-    <section className="mt-6 rounded-lg border bg-white p-4">
+    <div>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -154,33 +145,40 @@ function SearchBox() {
         }}
         className="flex gap-2"
       >
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Ask the handbook, e.g. “student faculty ratio for UG engineering”"
-          className="flex-1 rounded-md border px-3 py-2 text-sm"
-        />
-        <button className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+        <label className="relative flex-1">
+          <span className="sr-only">Search the handbook</span>
+          <Search size={18} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search the handbook, e.g. student faculty ratio for UG engineering"
+            className={`${inputClass.replace("mt-1.5", "")} h-11 pl-10`}
+          />
+        </label>
+        <Button type="submit" variant="primary" className="h-11">
           Search
-        </button>
+        </Button>
       </form>
-      {search.data && search.data.length === 0 && (
-        <p className="mt-4 text-sm text-slate-500">No matching clauses.</p>
-      )}
-      <div className="mt-4 space-y-3">
+
+      <div className="mt-6 space-y-3">
+        {!search.data && !hasSources && (
+          <EmptyState title="Nothing to search yet" body="Add the Approval Process Handbook to search its clauses here." />
+        )}
+        {search.data?.length === 0 && <EmptyState title="No matching clauses" body="Try different wording." />}
         {search.data?.map((h) => (
-          <div key={h.chunk_id} className="rounded-md border p-3">
-            <div className="text-xs font-medium text-slate-900">
+          <article key={h.chunk_id} className="rounded-[var(--radius-panel)] border bg-sheet px-5 py-4">
+            <h3 className="font-bold">
+              {h.section && `§${h.section} `}
+              {h.heading ?? h.source_title}
+            </h3>
+            <p className="text-sm text-muted">
               {h.source_title} {h.source_version}
-              {h.section && ` · § ${h.section}`}
-              {h.heading && ` ${h.heading}`}
-              {h.page && ` · p. ${h.page}`}
-              <span className="ml-2 font-normal text-slate-400">{h.matched_by.join(" + ")}</span>
-            </div>
-            <p className="mt-1 line-clamp-6 whitespace-pre-line text-sm text-slate-700">{h.text}</p>
-          </div>
+              {h.page && `, page ${h.page}`}
+            </p>
+            <p className="mt-2 line-clamp-6 whitespace-pre-line">{h.text}</p>
+          </article>
         ))}
       </div>
-    </section>
+    </div>
   );
 }

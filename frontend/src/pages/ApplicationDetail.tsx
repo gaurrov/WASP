@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ChangeEvent } from "react";
+import { Circle, CircleCheck, CircleDashed, FileText } from "lucide-react";
+import { useState, type ChangeEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import {
   EDITABLE,
@@ -16,11 +17,20 @@ import {
 import { useAuth } from "../auth";
 import AlertCard from "../components/AlertCard";
 import FindingsPanel from "../components/FindingsPanel";
-import { CaseBanner, Timeline } from "../components/WorkflowPanel";
 import Layout from "../components/Layout";
-import StatusBadge from "../components/StatusBadge";
-
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg";
+import {
+  Button,
+  ErrorText,
+  FileButton,
+  PageHeader,
+  Panel,
+  Pill,
+  Stamp,
+  StatusPill,
+  caseRef,
+  formatDate,
+} from "../components/ui";
+import { CaseNotice, NextStep, Timeline } from "../components/WorkflowPanel";
 
 export default function ApplicationDetail() {
   const { id = "" } = useParams();
@@ -32,14 +42,14 @@ export default function ApplicationDetail() {
   const { data: app, isLoading, error: loadError } = useQuery({
     queryKey: ["application", id],
     queryFn: () => fetchApplication(id),
-    // Poll while any document is still being extracted.
+    // Poll while documents are being read or checks are running.
     refetchInterval: (q) => {
-      const app = q.state.data;
-      const busy =
-        app?.status === "submitted" ||
-        app?.status === "processing" ||
-        app?.documents.some((d) => isProcessing(d.processing_status));
-      return busy ? 2000 : false;
+      const a = q.state.data;
+      const working =
+        a?.status === "submitted" ||
+        a?.status === "processing" ||
+        a?.documents.some((d) => isProcessing(d.processing_status));
+      return working ? 2000 : false;
     },
   });
 
@@ -47,7 +57,6 @@ export default function ApplicationDetail() {
     queryKey: ["workflow", id],
     queryFn: () => fetchWorkflow(id),
     enabled: !!app && app.status !== "draft",
-    // Poll while the case is running in the background (extraction / evaluation).
     refetchInterval: (q) =>
       !q.state.data?.started ||
       q.state.data.waiting_for === "extraction" ||
@@ -90,25 +99,25 @@ export default function ApplicationDetail() {
     onError: (e) => setError(e.message),
   });
 
-  if (isLoading) return <Layout>Loading…</Layout>;
+  if (isLoading) return <Layout>Loading application…</Layout>;
   if (loadError || !app) {
     return (
       <Layout>
-        <p className="text-sm text-red-600">{loadError?.message ?? "Not found"}</p>
+        <ErrorText>{loadError?.message ?? "This application doesn't exist or isn't visible to you."}</ErrorText>
       </Layout>
     );
   }
 
-  const canEdit = user?.role === "institution" && EDITABLE.includes(app.status);
-  // Expiring certificates can be replaced even after submission/approval (compliance update).
+  const isInstitution = user?.role === "institution";
+  const canEdit = isInstitution && EDITABLE.includes(app.status);
+  // Expiring certificates can be replaced even after submission or approval.
   const renewalDocIds = new Set(
-    user?.role === "institution"
+    isInstitution
       ? (appAlerts ?? [])
           .filter((a) => a.alert_type === "certificate_expiry")
           .map((a) => String(a.details.document_id))
       : [],
   );
-  const isDraft = app.status === "draft";
 
   const onUpload = (docType: string) => (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -127,215 +136,276 @@ export default function ApplicationDetail() {
   const onSubmit = () => {
     const missing = app.missing_required.length;
     const msg = missing
-      ? `${missing} required document type(s) are still missing. They will be flagged as deficiencies during review. Submit anyway?`
-      : "Submit this application for review? Documents can't be changed afterwards unless clarification is requested.";
+      ? `${missing} required document type(s) are still missing. They'll be recorded as deficiencies. Submit anyway?`
+      : "Submit this application for review? Documents can't be changed afterwards unless AICTE asks for a clarification.";
     if (window.confirm(msg)) submit.mutate();
   };
 
   return (
     <Layout>
-      <Link to="/applications" className="text-sm text-slate-500 hover:text-slate-900">
-        ← {user?.role === "institution" ? "My applications" : "Review queue"}
-      </Link>
-
-      <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-slate-900">
-              {app.application_type_label} · {app.academic_year}
-            </h1>
-            <StatusBadge status={app.status} />
-          </div>
-          <p className="mt-1 text-sm text-slate-500">
-            {app.institution_name}
-            {app.submitted_at && ` · submitted ${new Date(app.submitted_at).toLocaleString()}`}
-          </p>
-        </div>
-        {canEdit && (
-          <button
-            onClick={onSubmit}
-            disabled={submit.isPending || busy}
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {app.status === "clarification_requested" ? "Resubmit" : "Submit for review"}
-          </button>
-        )}
-      </div>
+      <PageHeader
+        back={{ to: "/applications", label: isInstitution ? "Applications" : "Review queue" }}
+        title={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {isInstitution ? `${app.application_type_label} ${app.academic_year}` : app.institution_name}
+            <StatusPill status={app.status} />
+          </span>
+        }
+        description={
+          <>
+            {isInstitution ? app.institution_name : `${app.application_type_label} ${app.academic_year}`}
+            <span className="mx-2 text-rule-strong" aria-hidden>
+              |
+            </span>
+            <span className="whitespace-nowrap">{caseRef(app)}</span>
+            {app.submitted_at && (
+              <>
+                <span className="mx-2 text-rule-strong" aria-hidden>
+                  |
+                </span>
+                Submitted {formatDate(app.submitted_at)}
+              </>
+            )}
+          </>
+        }
+        actions={workflow?.decision && <Stamp decision={workflow.decision.decision} date={workflow.decision.decided_at} />}
+      />
 
       {error && (
-        <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
-      )}
-      {app.status === "draft" && (
-        <MissingBanner app={app} isInstitution={user?.role === "institution"} />
-      )}
-      <CaseBanner app={app} workflow={workflow} />
-      {appAlerts && appAlerts.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {appAlerts.map((a) => (
-            <AlertCard key={a.id} alert={a} compact />
-          ))}
+        <div className="mb-6">
+          <ErrorText>{error}</ErrorText>
         </div>
       )}
-      {app.status !== "draft" && <FindingsPanel app={app} workflow={workflow} />}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[16rem_1fr]">
-        <section className="h-fit rounded-lg border bg-white p-4">
-          <h2 className="text-sm font-medium text-slate-900">Declared values</h2>
-          <dl className="mt-3 space-y-3 text-sm">
-            <div>
-              <dt className="text-xs text-slate-500">Programme</dt>
-              <dd className="text-slate-900">{app.declared.programme}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-500">Sanctioned intake</dt>
-              <dd className="text-slate-900">{app.declared.sanctioned_intake}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-500">Faculty count</dt>
-              <dd className="text-slate-900">{app.declared.faculty_count}</dd>
-            </div>
-          </dl>
-        </section>
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="min-w-0 space-y-8">
+          <CaseNotice app={app} workflow={workflow} />
 
-        <section className="rounded-lg border bg-white">
-          <h2 className="border-b px-4 py-3 text-sm font-medium text-slate-900">
-            Document checklist
-          </h2>
-          <ul className="divide-y">
-            {app.checklist.map((item) => {
-              const docs = app.documents.filter((d) => d.doc_type === item.doc_type);
-              return (
-                <li key={item.doc_type} className="px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <ChecklistIcon uploaded={item.document_count > 0} required={item.required} />
-                      <span className="text-sm text-slate-900">{item.label}</span>
-                      {!item.required && <span className="text-xs text-slate-400">optional</span>}
-                    </div>
-                    {canEdit && (item.multiple || docs.length === 0) && (
-                      <label
-                        className={`cursor-pointer rounded-md border px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 ${busy ? "opacity-50" : ""}`}
-                      >
+          {appAlerts && appAlerts.length > 0 && (
+            <Panel title="Open alerts">
+              <div className="divide-y">
+                {appAlerts.map((a) => (
+                  <AlertCard key={a.id} alert={a} variant="row" />
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {app.status !== "draft" && <FindingsPanel app={app} workflow={workflow} />}
+
+          <Panel
+            title="Documents"
+            actions={
+              <span className="text-sm text-muted">
+                {app.documents.length} file{app.documents.length === 1 ? "" : "s"}
+              </span>
+            }
+          >
+            <ul className="divide-y">
+              {app.checklist.map((item) => (
+                <ChecklistGroup
+                  key={item.doc_type}
+                  item={item}
+                  docs={app.documents.filter((d) => d.doc_type === item.doc_type)}
+                  upload={
+                    canEdit && (item.multiple || item.document_count === 0) ? (
+                      <FileButton onFiles={onUpload(item.doc_type)} multiple={item.multiple} disabled={busy}>
                         Upload
-                        <input
-                          type="file"
-                          accept={ACCEPT}
-                          multiple={item.multiple}
-                          disabled={busy}
-                          onChange={onUpload(item.doc_type)}
-                          className="hidden"
-                        />
-                      </label>
-                    )}
-                  </div>
-                  {docs.length > 0 && (
-                    <ul className="mt-2 space-y-1 pl-7">
-                      {docs.map((doc) => (
-                        <li key={doc.id} className="flex flex-wrap items-center gap-x-3 text-xs">
-                          <Link to={`/documents/${doc.id}`} className="text-blue-700 hover:underline">
-                            {doc.filename}
-                          </Link>
-                          <span className="text-slate-400">
-                            {doc.page_count != null && `${doc.page_count} p · `}v{doc.version}
-                          </span>
-                          <ProcessingChip doc={doc} />
-                          {(canEdit || renewalDocIds.has(doc.id)) && (
-                            <label
-                              className={
-                                renewalDocIds.has(doc.id) && !canEdit
-                                  ? "cursor-pointer rounded bg-slate-900 px-1.5 text-white"
-                                  : "cursor-pointer text-slate-500 hover:text-slate-900"
-                              }
-                            >
-                              {renewalDocIds.has(doc.id) && !canEdit ? "Upload renewal" : "Replace"}
-                              <input
-                                type="file"
-                                accept={ACCEPT}
-                                disabled={busy}
-                                onChange={onReplace(doc)}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                          {canEdit && isDraft && (
-                            <button
-                              onClick={() => run(() => deleteDocument(app.id, doc.id))}
-                              className="text-slate-500 hover:text-red-600"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                      </FileButton>
+                    ) : null
+                  }
+                  renderDoc={(doc) => (
+                    <DocumentRow
+                      key={doc.id}
+                      doc={doc}
+                      canReplace={canEdit || renewalDocIds.has(doc.id)}
+                      isRenewal={renewalDocIds.has(doc.id) && !canEdit}
+                      canDelete={canEdit && app.status === "draft"}
+                      busy={busy}
+                      onReplace={onReplace(doc)}
+                      onDelete={() => run(() => deleteDocument(app.id, doc.id))}
+                    />
                   )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+                  isNotable={(doc) => renewalDocIds.has(doc.id)}
+                />
+              ))}
+            </ul>
+          </Panel>
+
+          {workflow?.started && <Timeline workflow={workflow} />}
+        </div>
+
+        <aside className="space-y-6 lg:sticky lg:top-8">
+          {canEdit && <SubmitPanel app={app} onSubmit={onSubmit} disabled={submit.isPending || busy} />}
+          <NextStep app={app} workflow={workflow} />
+          <Panel title="Declared by the institution">
+            <dl className="divide-y text-[15px]">
+              {[
+                ["Programme", app.declared.programme],
+                ["Sanctioned intake", `${app.declared.sanctioned_intake} per year`],
+                ["Faculty", app.declared.faculty_count],
+              ].map(([label, value]) => (
+                <div key={label} className="px-5 py-3">
+                  <dt className="text-sm text-muted">{label}</dt>
+                  <dd className="font-bold">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        </aside>
       </div>
-      {workflow?.started && <Timeline workflow={workflow} />}
     </Layout>
   );
 }
 
-function ProcessingChip({ doc }: { doc: DocumentInfo }) {
-  if (isProcessing(doc.processing_status)) {
-    return <span className="text-slate-400">extracting…</span>;
-  }
-  if (doc.processing_status === "failed") {
-    return <span className="text-red-600">extraction failed</span>;
-  }
+const COLLAPSE_OVER = 3;
+
+/** One checklist item and its files. Long groups collapse, but files that need attention
+ * (to verify, unreadable, still being read, renewal due) always stay visible. */
+function ChecklistGroup({
+  item,
+  docs,
+  upload,
+  renderDoc,
+  isNotable,
+}: {
+  item: Detail["checklist"][number];
+  docs: DocumentInfo[];
+  upload: ReactNode;
+  renderDoc: (doc: DocumentInfo) => ReactNode;
+  isNotable: (doc: DocumentInfo) => boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const notable = (d: DocumentInfo) =>
+    d.low_confidence_count > 0 || d.processing_status !== "done" || isNotable(d);
+  const collapsible = docs.length > COLLAPSE_OVER;
+  const shown = collapsible && !expanded ? docs.filter(notable) : docs;
+  const hidden = docs.length - shown.length;
+
+  return (
+    <li className="px-5 py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <ChecklistMark uploaded={item.document_count > 0} required={item.required} />
+          <span className="font-bold">{item.label}</span>
+          {collapsible && <span className="text-sm text-muted">{docs.length} files</span>}
+          {!item.required && <span className="text-sm text-muted">optional</span>}
+          {item.required && item.document_count === 0 && <Pill tone="review">Missing</Pill>}
+        </div>
+        {upload}
+      </div>
+      {(shown.length > 0 || hidden > 0) && (
+        <ul className="mt-2 space-y-1 pl-[1.85rem]">
+          {shown.map(renderDoc)}
+          {collapsible && (
+            <li>
+              <button
+                onClick={() => setExpanded(!expanded)}
+                aria-expanded={expanded}
+                className="py-1 text-sm font-bold text-stamp underline-offset-2 hover:underline"
+              >
+                {expanded ? "Show fewer" : `Show all ${docs.length} files${hidden < docs.length ? ` (${hidden} more)` : ""}`}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function SubmitPanel({ app, onSubmit, disabled }: { app: Detail; onSubmit: () => void; disabled: boolean }) {
+  const required = app.checklist.filter((c) => c.required);
+  const done = required.filter((c) => c.satisfied).length;
+  const resubmit = app.status === "clarification_requested";
+  return (
+    <Panel title={resubmit ? "Resubmit" : "Submit for review"}>
+      <div className="space-y-4 px-5 py-4">
+        <div>
+          <div className="flex justify-between text-sm">
+            <span>Required documents</span>
+            <span className="font-bold">
+              {done} of {required.length}
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper" aria-hidden>
+            <div className="h-full rounded-full bg-pass" style={{ width: `${(done / required.length) * 100}%` }} />
+          </div>
+          {app.missing_required.length > 0 && (
+            <p className="mt-2 text-sm text-muted">
+              Missing: {app.checklist.filter((c) => !c.satisfied).map((c) => c.label).join(", ")}.
+            </p>
+          )}
+        </div>
+        <Button variant="primary" className="w-full" onClick={onSubmit} disabled={disabled}>
+          {resubmit ? "Resubmit" : "Submit for review"}
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+function DocumentRow({
+  doc,
+  canReplace,
+  isRenewal,
+  canDelete,
+  busy,
+  onReplace,
+  onDelete,
+}: {
+  doc: DocumentInfo;
+  canReplace: boolean;
+  isRenewal: boolean;
+  canDelete: boolean;
+  busy: boolean;
+  onReplace: (e: ChangeEvent<HTMLInputElement>) => void;
+  onDelete: () => void;
+}) {
   const mismatch =
     doc.detected_doc_type &&
     doc.detected_doc_type !== doc.doc_type &&
     doc.detected_doc_type !== "unclassified" &&
     (doc.detection_confidence ?? 0) >= 0.6;
+
   return (
-    <>
-      <span className="text-slate-500">{doc.fact_count} fields</span>
-      {doc.low_confidence_count > 0 && (
-        <span className="rounded bg-amber-100 px-1.5 text-amber-900">
-          {doc.low_confidence_count} to verify
-        </span>
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1 text-sm">
+      <FileText size={15} className="text-faint" aria-hidden />
+      <Link to={`/documents/${doc.id}`} className="font-bold text-stamp underline-offset-2 hover:underline">
+        {doc.filename}
+      </Link>
+      <span className="text-muted">
+        {doc.page_count != null && `${doc.page_count} page${doc.page_count === 1 ? "" : "s"}, `}v{doc.version}
+      </span>
+      {isProcessing(doc.processing_status) ? (
+        <span className="text-muted">reading…</span>
+      ) : doc.processing_status === "failed" ? (
+        <Pill tone="fail">Couldn't be read</Pill>
+      ) : (
+        <>
+          <span className="text-muted">{doc.fact_count} fields</span>
+          {doc.low_confidence_count > 0 && <Pill tone="review">{doc.low_confidence_count} to verify</Pill>}
+          {mismatch && <Pill tone="review">Looks like a different document</Pill>}
+        </>
       )}
-      {mismatch && (
-        <span className="rounded bg-amber-100 px-1.5 text-amber-900">type mismatch?</span>
-      )}
-    </>
+      <span className="ml-auto flex gap-1">
+        {canReplace && (
+          <FileButton onFiles={onReplace} disabled={busy} variant={isRenewal ? "primary" : "ghost"}>
+            {isRenewal ? "Upload renewal" : "Replace"}
+          </FileButton>
+        )}
+        {canDelete && (
+          <Button size="sm" variant="ghost" onClick={onDelete} disabled={busy}>
+            Delete
+          </Button>
+        )}
+      </span>
+    </li>
   );
 }
 
-function MissingBanner({ app, isInstitution }: { app: Detail; isInstitution: boolean }) {
-  if (app.missing_required.length === 0) return null;
-  const labels = app.checklist.filter((c) => !c.satisfied).map((c) => c.label);
-  return (
-    <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-      <span className="font-medium">
-        {isInstitution ? "Required documents missing: " : "Incomplete submission — missing: "}
-      </span>
-      {labels.join(", ")}
-    </div>
-  );
-}
-
-function ChecklistIcon({ uploaded, required }: { uploaded: boolean; required: boolean }) {
-  if (uploaded) {
-    return (
-      <span className="flex size-5 items-center justify-center rounded-full bg-emerald-100 text-xs text-emerald-700">
-        ✓
-      </span>
-    );
-  }
-  if (required) {
-    return (
-      <span className="flex size-5 items-center justify-center rounded-full bg-amber-100 text-xs text-amber-800">
-        !
-      </span>
-    );
-  }
-  return <span className="size-5 rounded-full border border-dashed" />;
+function ChecklistMark({ uploaded, required }: { uploaded: boolean; required: boolean }) {
+  if (uploaded) return <CircleCheck size={19} className="text-pass" aria-label="Uploaded" />;
+  if (required) return <Circle size={19} className="text-review" aria-label="Required, missing" />;
+  return <CircleDashed size={19} className="text-faint" aria-label="Optional" />;
 }

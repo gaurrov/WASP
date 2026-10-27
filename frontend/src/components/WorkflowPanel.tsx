@@ -10,6 +10,7 @@ import {
   type WorkflowEvent,
 } from "../applications";
 import { useAuth } from "../auth";
+import { Button, Notice, Panel, formatDateTime, textareaClass } from "./ui";
 
 const OPEN = ["fail", "needs_review", "unable_to_determine"];
 
@@ -23,63 +24,82 @@ export function useInvalidateCase(applicationId: string) {
   };
 }
 
-/** Status banner (clarification / decision) plus the reviewer's case actions. */
-export function CaseBanner({ app, workflow }: { app: ApplicationDetail; workflow?: Workflow }) {
-  const { user } = useAuth();
-  const isStaff = user?.role === "reviewer" || user?.role === "admin";
-  const { data: findings } = useQuery({
+function useFindings(app: ApplicationDetail, workflow?: Workflow) {
+  return useQuery({
     queryKey: ["findings", app.id, workflow?.round ?? 0, app.status],
     queryFn: () => fetchFindings(app.id),
     enabled: app.status !== "draft",
-  });
+  }).data;
+}
+
+/** The clarification request or final decision, shown at the top of the case. */
+export function CaseNotice({ app, workflow }: { app: ApplicationDetail; workflow?: Workflow }) {
+  const { user } = useAuth();
+  const isStaff = user?.role === "reviewer" || user?.role === "admin";
+  const findings = useFindings(app, workflow);
 
   if (app.status === "clarification_requested" && workflow?.clarification) {
     const asked = findings?.filter((f) => workflow.clarification!.finding_ids.includes(f.id)) ?? [];
     return (
-      <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        <div className="font-medium">
-          {isStaff ? "Clarification requested — waiting for the institution" : "AICTE has requested a clarification"}
-        </div>
-        <p className="mt-1 whitespace-pre-line">{workflow.clarification.message}</p>
+      <Notice
+        tone="review"
+        title={isStaff ? "Waiting for the institution to respond" : "AICTE has asked for a clarification"}
+      >
+        <p className="whitespace-pre-line">{workflow.clarification.message}</p>
         {asked.length > 0 && (
-          <ul className="mt-2 list-inside list-disc text-xs">
+          <ul className="mt-2 list-disc space-y-0.5 pl-5">
             {asked.map((f) => (
-              <li key={f.id}>
-                <b>{f.rule.title}</b>: {f.reason}
-              </li>
+              <li key={f.id}>{f.rule.title}</li>
             ))}
           </ul>
         )}
         {!isStaff && (
-          <p className="mt-2 text-xs">
-            Upload or replace the documents below, then click <b>Resubmit</b>. Only the checks
-            affected by your changes will be re-run.
+          <p className="mt-2">
+            Replace or upload the documents below, then resubmit. Only the checks your changes affect will run
+            again.
           </p>
         )}
-      </div>
+      </Notice>
     );
   }
 
   if (workflow?.decision) {
     const approved = workflow.decision.decision === "approve";
     return (
-      <div
-        className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-          approved ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-red-300 bg-red-50 text-red-950"
-        }`}
-      >
-        <div className="font-medium">
-          {approved ? "Approved" : "Rejected"} on {new Date(workflow.decision.decided_at).toLocaleString()}
-        </div>
-        <p className="mt-1 whitespace-pre-line">{workflow.decision.reason}</p>
-      </div>
+      <Notice tone={approved ? "pass" : "fail"} title={`${approved ? "Approved" : "Rejected"}: reviewer's reason`}>
+        <p className="whitespace-pre-line">{workflow.decision.reason}</p>
+      </Notice>
     );
   }
+  return null;
+}
+
+/** What happens next on this case, and the reviewer's decision controls. */
+export function NextStep({ app, workflow }: { app: ApplicationDetail; workflow?: Workflow }) {
+  const { user } = useAuth();
+  const isStaff = user?.role === "reviewer" || user?.role === "admin";
+  const findings = useFindings(app, workflow);
+  const openIds = findings?.filter((f) => OPEN.includes(f.status)).map((f) => f.id) ?? [];
 
   if (isStaff && workflow?.waiting_for === "reviewer") {
-    return <ReviewerActions app={app} workflow={workflow} openFindingIds={findings?.filter((f) => OPEN.includes(f.status)).map((f) => f.id) ?? []} />;
+    return <ReviewerActions app={app} workflow={workflow} openFindingIds={openIds} />;
   }
-  return null;
+
+  const waiting: Record<string, string> = {
+    extraction: "Reading the documents. Checks run as soon as extraction finishes.",
+    reviewer: "An AICTE reviewer is going through the findings.",
+    institution: isStaff
+      ? "The institution has been asked to respond. You'll be able to act once they resubmit."
+      : "Respond to the clarification, then resubmit from this panel.",
+  };
+  if (workflow?.finished || !workflow?.waiting_for || (!isStaff && workflow.waiting_for === "institution")) {
+    return null;
+  }
+  return (
+    <Panel title="Next step">
+      <p className="px-5 py-4 text-sm text-muted">{waiting[workflow.waiting_for]}</p>
+    </Panel>
+  );
 }
 
 function ReviewerActions({
@@ -111,72 +131,84 @@ function ReviewerActions({
 
   const approveBlocked =
     workflow.unreviewed_findings > 0
-      ? `Review all open findings first (${workflow.unreviewed_findings} remaining).`
+      ? `Review every open finding first. ${workflow.unreviewed_findings} left.`
       : workflow.confirmed_deficiencies > 0
-        ? `${workflow.confirmed_deficiencies} confirmed deficiency(ies): request clarification or reject.`
+        ? `${workflow.confirmed_deficiencies} confirmed deficiency. Ask for a clarification or reject.`
         : null;
 
-  const button = (m: typeof mode, label: string, style: string, disabled = false) => (
-    <button
-      onClick={() => {
-        setMode(mode === m ? null : m);
-        setError(null);
-      }}
-      disabled={disabled}
-      className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${style}`}
-    >
-      {label}
-    </button>
-  );
+  const choose = (m: typeof mode) => {
+    setMode(mode === m ? null : m);
+    setError(null);
+  };
+
+  const confirmLabel = { clarify: "Send request", approve: "Approve application", reject: "Reject application" };
 
   return (
-    <div className="mt-4 rounded-lg border bg-white px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-700">
-          <span className="font-medium text-slate-900">Your review.</span>{" "}
+    <Panel title="Your decision">
+      <div className="space-y-4 px-5 py-4">
+        <p className="text-sm text-muted">
           {openFindingIds.length === 0
-            ? "All checks passed."
-            : `${openFindingIds.length} open finding(s); ${workflow.unreviewed_findings} not yet reviewed.`}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {button("clarify", "Request clarification…", "border text-slate-800 hover:bg-slate-50", openFindingIds.length === 0)}
-          {button("reject", "Reject…", "border border-red-300 text-red-700 hover:bg-red-50")}
-          {button("approve", "Approve…", "bg-emerald-700 text-white hover:bg-emerald-800", approveBlocked !== null)}
-        </div>
-      </div>
-      {approveBlocked && <p className="mt-2 text-xs text-slate-500">Approve: {approveBlocked}</p>}
+            ? "Every check passed."
+            : `${openFindingIds.length} open finding${openFindingIds.length === 1 ? "" : "s"}, ${workflow.unreviewed_findings} not yet reviewed.`}
+        </p>
 
-      {mode && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            act.mutate();
-          }}
-          className="mt-3 space-y-2"
-        >
-          <textarea
-            required
-            minLength={5}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={3}
-            placeholder={
-              mode === "clarify"
-                ? "What should the institution provide or correct? All open findings are attached."
-                : `Reason for ${mode === "approve" ? "approval" : "rejection"} (recorded in the audit trail)`
-            }
-            className="w-full rounded-md border px-3 py-2 text-sm"
-          />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            disabled={act.isPending}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+        <div className="grid gap-2">
+          <Button
+            variant="approve"
+            onClick={() => choose("approve")}
+            disabled={approveBlocked !== null}
+            aria-pressed={mode === "approve"}
           >
-            {mode === "clarify" ? "Send request" : mode === "approve" ? "Confirm approval" : "Confirm rejection"}
-          </button>
-        </form>
-      )}
-    </div>
+            Approve…
+          </Button>
+          {approveBlocked && <p className="text-[13px] text-muted">{approveBlocked}</p>}
+          <Button onClick={() => choose("clarify")} disabled={openFindingIds.length === 0} aria-pressed={mode === "clarify"}>
+            Request clarification…
+          </Button>
+          <Button variant="danger" onClick={() => choose("reject")} aria-pressed={mode === "reject"}>
+            Reject…
+          </Button>
+        </div>
+
+        {mode && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              act.mutate();
+            }}
+            className="space-y-2 border-t pt-4"
+          >
+            <label className="block">
+              <span className="text-sm font-bold">
+                {mode === "clarify" ? "What should the institution fix?" : `Reason for ${mode === "approve" ? "approval" : "rejection"}`}
+              </span>
+              <textarea
+                required
+                minLength={5}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={4}
+                placeholder={
+                  mode === "clarify"
+                    ? "All open findings are attached to the request."
+                    : "Recorded in the audit trail and shown to the institution."
+                }
+                className={textareaClass}
+              />
+            </label>
+            {error && <p className="text-sm text-fail">{error}</p>}
+            <Button
+              type="submit"
+              variant={mode === "approve" ? "approve" : mode === "reject" ? "danger" : "primary"}
+              disabled={act.isPending}
+              className="w-full"
+            >
+              {confirmLabel[mode]}
+            </Button>
+          </form>
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -185,15 +217,18 @@ const EVENT_LABELS: Record<string, (e: WorkflowEvent) => string> = {
   application_submitted: () => "Submitted for review",
   application_resubmitted: () => "Resubmitted after clarification",
   application_evaluated: (e) => {
-    const to = humanize(String(e.to_status));
-    if (e.payload.round === undefined) return `Compliance checks run → ${to}`;  // pre-workflow events
+    const to = humanize(String(e.to_status)).toLowerCase();
+    if (e.payload.round === undefined) return `Compliance checks run; ${to}`; // pre-workflow events
     const rechecked = (e.payload.rechecked as string[]) ?? [];
     const carried = Number(e.payload.carried_over ?? 0);
-    return `Round ${e.payload.round}: re-checked ${rechecked.length} rule(s)${carried ? `, ${carried} unchanged` : ""} → ${to}`;
+    return `Round ${e.payload.round} checks: ${rechecked.length} rule${rechecked.length === 1 ? "" : "s"} run${
+      carried ? `, ${carried} carried over` : ""
+    }; ${to}`;
   },
-  evaluation_requested: () => "Requested re-evaluation",
-  finding_reviewed: (e) => `${e.payload.outcome === "override" ? "Overrode" : "Confirmed"} a finding${e.payload.comment ? `: “${e.payload.comment}”` : ""}`,
-  clarification_requested: (e) => `Requested clarification: “${e.payload.message}”`,
+  evaluation_requested: () => "Checks re-run on request",
+  finding_reviewed: (e) =>
+    `${e.payload.outcome === "override" ? "Overrode" : "Confirmed"} a finding${e.payload.comment ? `: “${e.payload.comment}”` : ""}`,
+  clarification_requested: (e) => `Asked for a clarification: “${e.payload.message}”`,
   alert_raised: (e) => `Alert raised: ${e.payload.title}`,
   alert_overdue: (e) => `Alert overdue: ${e.payload.title}`,
   alert_escalated: (e) => `Alert escalated: ${e.payload.title}`,
@@ -201,7 +236,7 @@ const EVENT_LABELS: Record<string, (e: WorkflowEvent) => string> = {
   alert_acknowledged: (e) => `Alert acknowledged: ${e.payload.title}`,
   alert_resolved: (e) =>
     e.payload.automatic === false
-      ? `Alert resolved by reviewer: “${e.payload.note}”`
+      ? `Alert resolved by a reviewer: “${e.payload.note}”`
       : `Alert resolved automatically: ${e.payload.title}`,
   application_decided: (e) => `${e.payload.decision === "approve" ? "Approved" : "Rejected"}: “${e.payload.reason}”`,
 };
@@ -209,26 +244,23 @@ const EVENT_LABELS: Record<string, (e: WorkflowEvent) => string> = {
 const DOCUMENT_EVENTS: Record<string, string> = {
   document_uploaded: "uploaded",
   compliance_document_updated: "renewed",
-  document_processed: "extracted",
-  document_reprocess_requested: "queued for re-extraction",
+  document_processed: "read",
+  document_reprocess_requested: "queued to be read again",
   document_deleted: "deleted",
 };
 
-/** Audit timeline. Runs of document events collapse into one line so decisions stay readable. */
+const MILESTONES = new Set(["application_submitted", "application_resubmitted", "clarification_requested", "application_decided"]);
+
+/** Audit trail. Runs of document events collapse into one entry so decisions stay readable. */
 export function Timeline({ workflow }: { workflow: Workflow }) {
-  type Row = { label: string; actor: string | null; at: string };
+  type Row = { label: string; actor: string | null; at: string; milestone: boolean };
   const rows: Row[] = [];
   let run: { counts: Record<string, number>; actor: string | null; at: string } | null = null;
 
   const flush = () => {
     if (!run) return;
     const parts = Object.entries(run.counts).map(([verb, n]) => `${n} ${verb}`);
-    const total = Object.values(run.counts).reduce((a, b) => a + b, 0);
-    rows.push({
-      label: total === 1 && run.counts.uploaded ? "1 document uploaded" : `Documents: ${parts.join(", ")}`,
-      actor: run.actor,
-      at: run.at,
-    });
+    rows.push({ label: `Documents: ${parts.join(", ")}`, actor: run.actor, at: run.at, milestone: false });
     run = null;
   };
 
@@ -242,26 +274,34 @@ export function Timeline({ workflow }: { workflow: Workflow }) {
     }
     flush();
     const label = EVENT_LABELS[e.event_type]?.(e) ?? humanize(e.event_type);
-    rows.push({ label, actor: e.actor, at: e.created_at });
+    rows.push({ label, actor: e.actor, at: e.created_at, milestone: MILESTONES.has(e.event_type) });
   }
   flush();
 
   return (
-    <section className="mt-6 rounded-lg border bg-white">
-      <h2 className="border-b px-4 py-3 text-sm font-medium text-slate-900">Audit trail</h2>
-      <ol className="space-y-2 px-4 py-3">
+    <Panel title="Audit trail">
+      <ol className="px-5 py-4">
         {rows.map((r, i) => (
-          <li key={i} className="flex gap-3 text-sm">
-            <span className="w-36 shrink-0 text-xs tabular-nums text-slate-400">
-              {new Date(r.at).toLocaleString()}
-            </span>
-            <span className="text-slate-700">
-              {r.label}
-              {r.actor && <span className="text-slate-400"> · {r.actor}</span>}
-            </span>
+          <li key={i} className="relative flex gap-4 pb-4 last:pb-0">
+            {i < rows.length - 1 && <span className="absolute top-3 bottom-0 left-[5px] w-px bg-rule" aria-hidden />}
+            <span
+              className={`relative mt-1.5 size-[11px] shrink-0 rounded-full border-2 ${
+                r.milestone ? "border-stamp bg-stamp" : "border-rule-strong bg-sheet"
+              }`}
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1 sm:flex sm:gap-4">
+              <p className={`flex-1 text-[15px] ${r.milestone ? "font-bold" : ""}`}>
+                {r.label}
+                {r.actor && <span className="font-normal text-muted">, {r.actor}</span>}
+              </p>
+              <time className="shrink-0 text-sm text-faint" dateTime={r.at}>
+                {formatDateTime(r.at)}
+              </time>
+            </div>
           </li>
         ))}
       </ol>
-    </section>
+    </Panel>
   );
 }

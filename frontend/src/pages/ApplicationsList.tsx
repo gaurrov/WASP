@@ -1,77 +1,133 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router";
-import { fetchApplications } from "../applications";
+import { fetchApplications, type ApplicationStatus } from "../applications";
 import { useAuth } from "../auth";
 import Layout from "../components/Layout";
-import StatusBadge from "../components/StatusBadge";
+import {
+  EmptyState,
+  ErrorText,
+  PageHeader,
+  StatusPill,
+  buttonClass,
+  caseRef,
+  formatDate,
+} from "../components/ui";
+import { NEXT_STEP } from "./Dashboard";
 
-const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
+const FILTERS: { key: string; label: string; statuses?: ApplicationStatus[] }[] = [
+  { key: "all", label: "All" },
+  { key: "review", label: "Needs review", statuses: ["submitted", "processing", "needs_review", "ready_for_decision"] },
+  { key: "clarification", label: "With institution", statuses: ["clarification_requested"] },
+  { key: "decided", label: "Decided", statuses: ["approved", "rejected"] },
+];
 
 export default function ApplicationsList() {
   const { user } = useAuth();
+  const isInstitution = user?.role === "institution";
+  const [filter, setFilter] = useState("all");
   const { data: apps, isLoading, error } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications,
   });
-  const isInstitution = user?.role === "institution";
+
+  const statuses = FILTERS.find((f) => f.key === filter)?.statuses;
+  const shown = (apps ?? []).filter((a) => !statuses || statuses.includes(a.status));
 
   return (
     <Layout>
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-900">
-          {isInstitution ? "My applications" : "Review queue"}
-        </h1>
-        {isInstitution && (
-          <Link
-            to="/applications/new"
-            className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-          >
-            New application
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        title={isInstitution ? "Applications" : "Review queue"}
+        description={
+          isInstitution
+            ? "Applications you've drafted or submitted to AICTE."
+            : "Submitted applications across institutions. Drafts aren't shown until submitted."
+        }
+        actions={
+          isInstitution && (
+            <Link to="/applications/new" className={buttonClass("primary")}>
+              New application
+            </Link>
+          )
+        }
+      />
 
-      {error && <p className="mt-6 text-sm text-red-600">{error.message}</p>}
-      {isLoading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
-      {apps?.length === 0 && (
-        <p className="mt-6 rounded-lg border border-dashed bg-white p-8 text-center text-sm text-slate-500">
-          {isInstitution
-            ? "No applications yet. Create one to start uploading documents."
-            : "No submitted applications to review."}
-        </p>
+      {!isInstitution && (
+        <div role="tablist" aria-label="Filter by stage" className="mb-4 flex flex-wrap gap-1">
+          {FILTERS.map((f) => {
+            const count = (apps ?? []).filter((a) => !f.statuses || f.statuses.includes(a.status)).length;
+            return (
+              <button
+                key={f.key}
+                role="tab"
+                aria-selected={filter === f.key}
+                onClick={() => setFilter(f.key)}
+                className={`rounded-full px-3.5 py-1.5 text-sm transition-colors ${
+                  filter === f.key ? "bg-ink text-white" : "text-muted hover:bg-sheet hover:text-ink"
+                }`}
+              >
+                {f.label} <span className="opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
 
-      {apps && apps.length > 0 && (
-        <div className="mt-6 overflow-x-auto rounded-lg border bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
+      {error && <ErrorText>{error.message}</ErrorText>}
+      {isLoading && <p className="text-muted">Loading applications…</p>}
+      {apps && shown.length === 0 && (
+        <EmptyState
+          title={isInstitution ? "No applications yet" : "Nothing in this stage"}
+          body={
+            isInstitution
+              ? "Start an application, upload your documents, and submit it when the checklist is complete."
+              : "Applications appear here once an institution submits them."
+          }
+          action={
+            isInstitution && (
+              <Link to="/applications/new" className={buttonClass("primary")}>
+                New application
+              </Link>
+            )
+          }
+        />
+      )}
+
+      {shown.length > 0 && (
+        <div className="overflow-x-auto rounded-[var(--radius-panel)] border bg-sheet">
+          <table className="w-full text-left">
+            <thead className="border-b text-sm text-muted">
               <tr>
-                {!isInstitution && <th className="px-4 py-3 font-medium">Institution</th>}
-                <th className="px-4 py-3 font-medium">Type</th>
-                <th className="px-4 py-3 font-medium">Academic year</th>
-                <th className="px-4 py-3 font-medium">Documents</th>
-                <th className="px-4 py-3 font-medium">Submitted</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                {!isInstitution && <th className="px-5 py-3 font-normal">Institution</th>}
+                <th className="px-5 py-3 font-normal">Application</th>
+                <th className="px-5 py-3 font-normal">Reference</th>
+                <th className="px-5 py-3 font-normal">Documents</th>
+                <th className="px-5 py-3 font-normal">{isInstitution ? "Next step" : "Submitted"}</th>
+                <th className="px-5 py-3 font-normal">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {apps.map((a) => (
-                <tr key={a.id} className="hover:bg-slate-50">
+              {shown.map((a) => (
+                <tr key={a.id} className="group transition-colors hover:bg-paper/70">
                   {!isInstitution && (
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      <Link to={`/applications/${a.id}`}>{a.institution_name}</Link>
+                    <td className="px-5 py-3.5 font-bold">
+                      <Link to={`/applications/${a.id}`} className="hover:underline">
+                        {a.institution_name}
+                      </Link>
                     </td>
                   )}
-                  <td className="px-4 py-3">
-                    <Link to={`/applications/${a.id}`} className="text-slate-900 hover:underline">
-                      {a.application_type_label}
+                  <td className="px-5 py-3.5">
+                    <Link to={`/applications/${a.id}`} className={isInstitution ? "font-bold hover:underline" : ""}>
+                      {a.application_type_label} {a.academic_year}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{a.academic_year}</td>
-                  <td className="px-4 py-3 text-slate-600">{a.document_count}</td>
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(a.submitted_at)}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={a.status} />
+                  <td className="px-5 py-3.5 text-sm text-muted">{caseRef(a)}</td>
+                  <td className="px-5 py-3.5 text-sm">{a.document_count}</td>
+                  <td className="px-5 py-3.5 text-sm text-muted">
+                    {isInstitution ? NEXT_STEP[a.status] : formatDate(a.submitted_at)}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <StatusPill status={a.status} />
                   </td>
                 </tr>
               ))}

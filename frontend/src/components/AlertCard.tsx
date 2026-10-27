@@ -3,33 +3,40 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { acknowledgeAlert, resolveAlert, type Alert } from "../applications";
 import { useAuth } from "../auth";
+import { Button, Pill, buttonClass, formatDate, inputClass, type Tone } from "./ui";
 
-const SEVERITY_BAR: Record<string, string> = {
-  critical: "bg-red-600",
-  high: "bg-orange-500",
-  medium: "bg-amber-400",
-  low: "bg-sky-400",
-  info: "bg-slate-300",
+const SEVERITY: Record<string, { mark: string; label: string }> = {
+  critical: { mark: "bg-fail", label: "Critical" },
+  high: { mark: "bg-[#c2410c]", label: "High" },
+  medium: { mark: "bg-review", label: "Medium" },
+  low: { mark: "bg-[#5b7fb5]", label: "Low" },
+  info: { mark: "bg-faint", label: "Info" },
 };
 
-const STATUS_STYLE: Record<string, string> = {
-  active: "bg-blue-50 text-blue-700",
-  reopened: "bg-blue-50 text-blue-700",
-  acknowledged: "bg-slate-100 text-slate-700",
-  overdue: "bg-orange-50 text-orange-800",
-  escalated: "bg-red-50 text-red-700",
-  resolved: "bg-emerald-50 text-emerald-700",
+const STATUS: Record<string, { label: string; tone: Tone }> = {
+  active: { label: "Open", tone: "info" },
+  reopened: { label: "Reopened", tone: "info" },
+  acknowledged: { label: "Acknowledged", tone: "neutral" },
+  overdue: { label: "Overdue", tone: "review" },
+  escalated: { label: "Escalated", tone: "fail" },
+  resolved: { label: "Resolved", tone: "pass" },
 };
 
 const OPEN = ["active", "acknowledged", "overdue", "escalated", "reopened"];
 
-export default function AlertCard({ alert, compact = false }: { alert: Alert; compact?: boolean }) {
+/**
+ * An alert. "card" is the full version for the alert centre; "row" is a compact line for
+ * the overview and case file, where the context (institution, application) is already known.
+ */
+export default function AlertCard({ alert, variant = "card" }: { alert: Alert; variant?: "card" | "row" }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [resolving, setResolving] = useState(false);
   const [note, setNote] = useState("");
   const isStaff = user?.role === "reviewer" || user?.role === "admin";
   const open = OPEN.includes(alert.status);
+  const severity = SEVERITY[alert.severity] ?? SEVERITY.info;
+  const status = STATUS[alert.status] ?? { label: alert.status, tone: "neutral" as Tone };
 
   const refresh = () => {
     for (const key of ["alerts", "alert-summary"]) queryClient.invalidateQueries({ queryKey: [key] });
@@ -43,91 +50,127 @@ export default function AlertCard({ alert, compact = false }: { alert: Alert; co
     },
   });
 
-  return (
-    <div className="flex overflow-hidden rounded-lg border bg-white">
-      <div className={`w-1.5 shrink-0 ${SEVERITY_BAR[alert.severity]}`} />
-      <div className="min-w-0 flex-1 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-slate-900">{alert.title}</span>
-          <span className={`rounded px-1.5 py-0.5 text-[11px] ${STATUS_STYLE[alert.status] ?? ""}`}>
-            {alert.status}
-          </span>
-          <span className="text-[11px] uppercase tracking-wide text-slate-400">{alert.severity}</span>
-          {alert.audience === "reviewer" && (
-            <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-700">for reviewers</span>
-          )}
-        </div>
-        {!compact && (
-          <div className="mt-0.5 text-xs text-slate-500">
+  const renewal = alert.alert_type === "certificate_expiry" && alert.application_id && !isStaff && open;
+
+  if (variant === "row") {
+    return (
+      <div className="flex items-start gap-3 px-5 py-3.5">
+        <span className={`mt-2 size-2 shrink-0 rounded-full ${severity.mark}`} aria-label={severity.label} />
+        <div className="min-w-0 flex-1">
+          <p className="font-bold">{alert.title}</p>
+          <p className="text-sm text-muted">
             {alert.institution_name}
-            {alert.application_id && (
-              <>
-                {" · "}
-                <Link to={`/applications/${alert.application_id}`} className="underline">
-                  {alert.application_label}
-                </Link>
-              </>
-            )}
-            {alert.due_at && ` · due ${new Date(alert.due_at).toLocaleDateString()}`}
-          </div>
+            {alert.due_at && <>, due {formatDate(alert.due_at)}</>}
+          </p>
+        </div>
+        <Pill tone={status.tone}>{status.label}</Pill>
+        {renewal && (
+          <Link to={`/applications/${alert.application_id}`} className={buttonClass("primary", "sm")}>
+            Upload renewal
+          </Link>
         )}
-        <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{alert.message}</p>
+      </div>
+    );
+  }
+
+  return (
+    <article className="relative overflow-hidden rounded-[var(--radius-panel)] border bg-sheet">
+      <span className={`absolute inset-y-0 left-0 w-1 ${severity.mark}`} aria-hidden />
+      <div className="py-4 pr-5 pl-6">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <h3 className="font-bold">{alert.title}</h3>
+            <p className="mt-0.5 text-sm text-muted">
+              {alert.institution_name}
+              {alert.application_id && (
+                <>
+                  {", "}
+                  <Link to={`/applications/${alert.application_id}`} className="underline-offset-2 hover:underline">
+                    {alert.application_label}
+                  </Link>
+                </>
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {alert.audience === "reviewer" && <Pill tone="stamp">For reviewers</Pill>}
+            <Pill tone={status.tone}>{status.label}</Pill>
+          </div>
+        </div>
+
+        <p className="mt-2 max-w-3xl text-[15px]">{alert.message}</p>
+
+        <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          <div className="flex gap-1.5">
+            <dt className="text-muted">Severity</dt>
+            <dd className="font-bold">{severity.label}</dd>
+          </div>
+          {alert.due_at && (
+            <div className="flex gap-1.5">
+              <dt className="text-muted">Due</dt>
+              <dd className="font-bold">{formatDate(alert.due_at)}</dd>
+            </div>
+          )}
+          <div className="flex gap-1.5">
+            <dt className="text-muted">Raised</dt>
+            <dd>{formatDate(alert.created_at)}</dd>
+          </div>
+        </dl>
+
         {alert.resolution_note && (
-          <p className="mt-1 text-xs text-emerald-700">
-            Resolved{alert.resolved_at && ` ${new Date(alert.resolved_at).toLocaleDateString()}`}: {alert.resolution_note}
+          <p className="mt-3 border-l-2 border-pass pl-3 text-sm text-pass">
+            Resolved {formatDate(alert.resolved_at)}: {alert.resolution_note}
           </p>
         )}
 
         {open && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {alert.status !== "acknowledged" && !alert.acknowledged_at && (
-              <button
-                onClick={() => ack.mutate()}
-                disabled={ack.isPending}
-                className="rounded border px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-              >
-                Acknowledge
-              </button>
-            )}
-            {alert.alert_type === "certificate_expiry" && alert.application_id && !isStaff && (
-              <Link
-                to={`/applications/${alert.application_id}`}
-                className="rounded bg-slate-900 px-2 py-1 text-xs text-white"
-              >
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {renewal && (
+              <Link to={`/applications/${alert.application_id}`} className={buttonClass("primary", "sm")}>
                 Upload renewal
               </Link>
             )}
-            {isStaff && !resolving && (
-              <button
-                onClick={() => setResolving(true)}
-                className="rounded border px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-              >
-                Resolve with note…
-              </button>
+            {alert.status !== "acknowledged" && !alert.acknowledged_at && (
+              <Button size="sm" onClick={() => ack.mutate()} disabled={ack.isPending}>
+                Acknowledge
+              </Button>
             )}
-            {resolving && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  resolve.mutate();
-                }}
-                className="flex flex-1 flex-wrap gap-2"
-              >
-                <input
-                  autoFocus
-                  required
-                  minLength={5}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Alternative outcome, e.g. renewal verified with the fire department"
-                  className="min-w-56 flex-1 rounded border px-2 py-1 text-xs"
-                />
-                <button className="rounded bg-slate-900 px-2 py-1 text-xs text-white">Resolve</button>
-              </form>
+            {isStaff && !resolving && (
+              <Button size="sm" variant="ghost" onClick={() => setResolving(true)}>
+                Resolve with a note
+              </Button>
             )}
           </div>
         )}
+        {resolving && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              resolve.mutate();
+            }}
+            className="mt-3 flex max-w-2xl flex-wrap items-end gap-2"
+          >
+            <label className="min-w-64 flex-1">
+              <span className="sr-only">Resolution note</span>
+              <input
+                autoFocus
+                required
+                minLength={5}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="What happened instead, e.g. renewal verified with the fire department"
+                className={inputClass.replace("mt-1.5", "")}
+              />
+            </label>
+            <Button type="submit" variant="primary">
+              Resolve alert
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setResolving(false)}>
+              Cancel
+            </Button>
+          </form>
+        )}
       </div>
-    </div>
+    </article>
   );
 }

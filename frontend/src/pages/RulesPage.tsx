@@ -1,75 +1,112 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
-import { fetchRuleCandidates, fetchRules, verifyRule, type Rule } from "../applications";
+import { fetchRuleCandidates, fetchRules, humanize, verifyRule, type Rule } from "../applications";
 import { useAuth } from "../auth";
 import Layout from "../components/Layout";
+import { Button, PageHeader, Panel, Pill } from "../components/ui";
 
-function RuleStatusBadge({ rule }: { rule: Rule }) {
-  if (rule.internal) {
-    return <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">internal check</span>;
-  }
-  if (rule.status === "approved") {
-    return (
-      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700">
-        verified · § {rule.source_section ?? "—"} p. {rule.source_page}
-      </span>
-    );
-  }
-  return (
-    <span className="rounded border border-dashed border-amber-400 px-1.5 py-0.5 text-xs text-amber-800">
-      draft — needs verification
-    </span>
-  );
+function formatParam(value: unknown): string {
+  if (Array.isArray(value)) return value.join(" : ");
+  return String(value);
 }
 
 export default function RulesPage() {
-  const { data: rules } = useQuery({ queryKey: ["rules"], queryFn: fetchRules });
-  const [openId, setOpenId] = useState<string | null>(null);
+  const { data: rules = [] } = useQuery({ queryKey: ["rules"], queryFn: fetchRules });
+  const regulatory = rules.filter((r) => !r.internal);
+  const internal = rules.filter((r) => r.internal);
+  const unverified = regulatory.filter((r) => r.status !== "approved").length;
 
   return (
     <Layout>
-      <h1 className="text-xl font-semibold text-slate-900">Compliance rules</h1>
-      <p className="mt-1 max-w-3xl text-sm text-slate-500">
-        Internal checks compare an application's own data. Regulatory rules encode an AICTE norm and
-        stay <b>draft</b> until an admin confirms the norm against the handbook clause; until then
-        their findings are marked provisional. Definitions live in{" "}
-        <code className="text-xs">backend/app/rules/rules.yaml</code>.
-      </p>
+      <PageHeader
+        title="Compliance rules"
+        description="The checks run on every submitted application. Rules that encode an AICTE norm stay provisional until someone confirms the norm against the handbook clause."
+      />
 
-      <ul className="mt-6 divide-y rounded-lg border bg-white">
-        {rules?.map((rule) => (
-          <li key={rule.id} className="px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs text-slate-500">
-                  {rule.rule_code} v{rule.version}
-                </span>
-                <span className="text-sm font-medium text-slate-900">{rule.title}</span>
-                <RuleStatusBadge rule={rule} />
-              </div>
-              {!rule.internal && (
-                <button
-                  onClick={() => setOpenId(openId === rule.id ? null : rule.id)}
-                  className="rounded-md border px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
-                >
-                  {openId === rule.id ? "Close" : "Find clause"}
-                </button>
-              )}
-            </div>
-            {Object.keys(rule.params).length > 0 && (
-              <div className="mt-1 font-mono text-xs text-slate-500">
-                {Object.entries(rule.params)
-                  .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-                  .join("  ")}
-              </div>
-            )}
-            {rule.norm_note && <p className="mt-1 text-xs text-slate-500">{rule.norm_note}</p>}
-            {openId === rule.id && <Candidates rule={rule} />}
-          </li>
-        ))}
-      </ul>
+      <div className="space-y-8">
+        <Panel
+          title="AICTE norms"
+          actions={
+            unverified > 0 ? (
+              <Pill tone="review">{unverified} not yet verified</Pill>
+            ) : (
+              <Pill tone="pass">All verified</Pill>
+            )
+          }
+        >
+          <ul className="divide-y">
+            {regulatory.map((rule) => (
+              <RuleRow key={rule.id} rule={rule} />
+            ))}
+          </ul>
+        </Panel>
+
+        <Panel title="Consistency checks">
+          <p className="border-b px-5 py-3 text-sm text-muted">
+            These compare an application with itself (declared values against documents, documents
+            against each other), so they need no regulatory citation.
+          </p>
+          <ul className="divide-y">
+            {internal.map((rule) => (
+              <RuleRow key={rule.id} rule={rule} />
+            ))}
+          </ul>
+        </Panel>
+      </div>
+
+      <p className="mt-6 text-sm text-muted">
+        Rules are defined in <code className="rounded bg-sheet px-1 py-0.5">backend/app/rules/rules.yaml</code>. To
+        change a norm, add a new rule version there rather than editing the old one.
+      </p>
     </Layout>
+  );
+}
+
+function RuleRow({ rule }: { rule: Rule }) {
+  const [open, setOpen] = useState(false);
+  const params = Object.entries(rule.params).filter(([k]) => k !== "label");
+
+  return (
+    <li className="px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h3 className="font-bold">{rule.title}</h3>
+            {!rule.internal &&
+              (rule.status === "approved" ? (
+                <Pill tone="stamp">
+                  Verified, §{rule.source_section ?? "—"} page {rule.source_page}
+                </Pill>
+              ) : (
+                <span className="rounded-full border border-dashed border-review/60 px-2 py-0.5 text-xs text-review">
+                  Not yet verified
+                </span>
+              ))}
+          </div>
+          <p className="mt-0.5 text-sm text-faint">
+            {rule.rule_code}, version {rule.version}, {rule.severity} severity
+          </p>
+          {params.length > 0 && (
+            <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+              {params.map(([k, v]) => (
+                <div key={k} className="flex gap-1.5">
+                  <dt className="text-muted">{humanize(k)}</dt>
+                  <dd className="font-bold">{formatParam(v)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {rule.norm_note && <p className="mt-2 max-w-3xl text-sm text-ink/80">{rule.norm_note}</p>}
+        </div>
+        {!rule.internal && (
+          <Button size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>
+            {open ? "Close" : "Find clause"}
+          </Button>
+        )}
+      </div>
+      {open && <Candidates rule={rule} />}
+    </li>
   );
 }
 
@@ -85,43 +122,41 @@ function Candidates({ rule }: { rule: Rule }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
   });
 
-  if (isLoading) return <p className="mt-3 text-xs text-slate-500">Searching the handbook…</p>;
+  if (isLoading) return <p className="mt-4 text-sm text-muted">Searching the handbook…</p>;
   if (!hits?.length) {
     return (
-      <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-        No matching passages. Upload the APH on the <Link to="/handbook" className="underline">Handbook</Link>{" "}
+      <p className="mt-4 rounded-[var(--radius-control)] bg-paper px-4 py-3 text-sm">
+        No matching passages. Upload the Approval Process Handbook on the{" "}
+        <Link to="/handbook" className="font-bold text-stamp underline-offset-2 hover:underline">
+          Handbook
+        </Link>{" "}
         page first.
       </p>
     );
   }
   return (
-    <div className="mt-3 space-y-2">
-      <p className="text-xs text-slate-500">
-        Read each passage. Verify only if it states the norm this rule enforces ({" "}
-        <span className="font-mono">{JSON.stringify(rule.params)}</span>). If it differs, change{" "}
-        <code>rules.yaml</code> (new version) instead.
+    <div className="mt-4 space-y-3">
+      <p className="text-sm text-muted">
+        Verify only a passage that states the norm above. If the handbook says something different,
+        add a new rule version instead.
       </p>
       {hits.map((h) => (
-        <div key={h.chunk_id} className="rounded-md border bg-slate-50 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs font-medium text-slate-900">
+        <div key={h.chunk_id} className="rounded-[var(--radius-control)] border bg-paper/60 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="font-bold">
               {h.source_title} {h.source_version}
-              {h.section && ` · § ${h.section}`}
+              {h.section && `, §${h.section}`}
               {h.heading && ` ${h.heading}`}
-              {h.page && ` · p. ${h.page}`}
-              <span className="ml-2 font-normal text-slate-400">matched by {h.matched_by.join(" + ")}</span>
-            </div>
+              {h.page && `, page ${h.page}`}
+            </p>
             {user?.role === "admin" && (
-              <button
-                onClick={() => verify.mutate(h.chunk_id)}
-                disabled={verify.isPending}
-                className="rounded-md bg-slate-900 px-2.5 py-1 text-xs text-white disabled:opacity-50"
-              >
+              <Button size="sm" variant="primary" onClick={() => verify.mutate(h.chunk_id)} disabled={verify.isPending}>
                 Verify with this clause
-              </button>
+              </Button>
             )}
           </div>
-          <p className="mt-2 whitespace-pre-line text-xs text-slate-700">{h.text}</p>
+          <p className="mt-2 text-sm whitespace-pre-line text-ink/80">{h.text}</p>
+          <p className="mt-2 text-xs text-faint">Matched by {h.matched_by.join(" and ")} search</p>
         </div>
       ))}
     </div>
