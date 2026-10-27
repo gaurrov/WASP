@@ -5,7 +5,7 @@ x-backend-env: &backend-env
   WASP_S3_ACCESS_KEY: wasp
   WASP_S3_SECRET_KEY: wasp-secret
   WASP_S3_BUCKET: wasp-documents
-  WASP_JWT_SECRET: ${WASP_JWT_SECRET:-dev-only-secret-change-me}
+  WASP_JWT_SECRET: ${WASP_JWT_SECRET:-dev-only-insecure-secret-change-me-0000}
 
 services:
   db:
