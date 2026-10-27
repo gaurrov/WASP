@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     s3_secret_key: str = "wasp-secret"
     s3_bucket: str = "wasp-documents"
 
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = "dev-only-insecure-secret-change-me-0000"
     jwt_algorithm: str = "HS256"
     jwt_ttl_minutes: int = 60 * 8
 

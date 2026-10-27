@@ -37,7 +37,8 @@ On startup the backend runs migrations and seeds demo accounts (password `wasp12
 
 ## Development
 
-Run backend commands inside the container (this keeps everyone on the same Linux toolchain):
+Run backend commands inside the container (this keeps everyone on the same Linux toolchain).
+Tests use a separate `wasp_test` database and `wasp-test` bucket, created automatically:
 
 ```bash
 docker compose exec backend pytest -q
@@ -62,7 +63,9 @@ To add backend dependencies: `cd backend && uv add <package>`, then `docker comp
 ```
 backend/
   app/
-    api/          FastAPI routers
+    api/          FastAPI routers (auth, applications + documents)
+    checklists.py required documents per application type (placeholder until APH rules in M3)
+    audit.py      append-only workflow event log
     models/       SQLAlchemy models (institutions → applications → documents → facts → findings → alerts)
     auth.py       JWT auth + require_roles()
     worker.py     Celery app (queues: default, documents, monitoring)

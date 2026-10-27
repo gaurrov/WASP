@@ -59,7 +59,7 @@ reviewer "request clarification" waits for re-upload, then reruns only the affec
 | # | Milestone | Done when |
 |---|---|---|
 | **M0** | Setup ✅ | Compose stack runs; schema migrated; auth with 3 roles; CI |
-| **M1** | Vertical slice | Institution creates application, uploads docs to S3 → reviewer sees application + required-document checklist |
+| **M1** | Vertical slice ✅ | Institution creates application, uploads docs to S3 → reviewer sees application + required-document checklist |
 | **M2** | Document intelligence | Upload a PDF → extracted facts shown with confidence + page; low confidence flagged |
 | **M3** | Rules + RAG | Findings shown as pass / fail / needs_review, each with evidence + cited APH clause |
 | **M4** | LangGraph workflow | Full graph with review interrupt; re-upload resumes and reruns only affected checks |

@@ -4,8 +4,11 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "./auth";
 import "./index.css";
+import ApplicationDetail from "./pages/ApplicationDetail";
+import ApplicationsList from "./pages/ApplicationsList";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
+import NewApplication from "./pages/NewApplication";
 
 const queryClient = new QueryClient();
 
@@ -22,14 +25,10 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route
-              path="/"
-              element={
-                <RequireAuth>
-                  <Dashboard />
-                </RequireAuth>
-              }
-            />
+            <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+            <Route path="/applications" element={<RequireAuth><ApplicationsList /></RequireAuth>} />
+            <Route path="/applications/new" element={<RequireAuth><NewApplication /></RequireAuth>} />
+            <Route path="/applications/:id" element={<RequireAuth><ApplicationDetail /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

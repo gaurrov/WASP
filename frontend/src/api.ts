@@ -33,9 +33,29 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, { ...init, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail ?? res.statusText);
+    throw new ApiError(res.status, errorMessage(body.detail) ?? res.statusText);
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+export function apiJson<T>(path: string, method: string, body: unknown): Promise<T> {
+  return api<T>(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// FastAPI returns a string for HTTPException and a list of issues for validation errors.
+function errorMessage(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: { loc?: unknown[]; msg?: string }) => `${d.loc?.at(-1) ?? ""}: ${d.msg ?? ""}`)
+      .join("; ");
+  }
+  return undefined;
 }
 
 export async function login(email: string, password: string): Promise<void> {
