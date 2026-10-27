@@ -1,6 +1,7 @@
 """Drive a case's graph: start it, feed it external events, and report where it's waiting."""
 
 import logging
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -62,7 +63,9 @@ class CaseStatus:
 def advance(application_id: uuid.UUID | str, event: dict | None = None) -> CaseStatus:
     """Start the case (no checkpoint yet) or resume it with `event`. Events that arrive after
     the case finished are ignored."""
+    started = time.perf_counter()
     with _case_lock(application_id), _graph() as graph:
+        locked = time.perf_counter()
         config = _config(application_id)
         state = graph.get_state(config)
         if not state.values:
@@ -72,6 +75,16 @@ def advance(application_id: uuid.UUID | str, event: dict | None = None) -> CaseS
         else:
             log.info("Case %s already finished; ignoring %s", application_id, event)
         case = _status(graph, config)
+    done = time.perf_counter()
+    if done - started > 1:
+        log.warning(
+            "Slow case event %s for %s: lock wait %.2fs, graph %.2fs, now waiting for %s",
+            (event or {}).get("type", "start"),
+            application_id,
+            locked - started,
+            done - locked,
+            case.waiting_for,
+        )
     # Workflow transitions open or close obligations (clarification deadlines, review SLAs).
     request_scan(application_id)
     return case

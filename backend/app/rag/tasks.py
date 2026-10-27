@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from celery.signals import worker_process_init
 from sqlalchemy import delete, func, select
 
 from app.config import get_settings
@@ -9,7 +10,7 @@ from app.docintel.text import extract_text
 from app.models import RegulatoryChunk, RegulatorySource
 from app.models.enums import ProcessingStatus
 from app.rag.chunk import chunk_document
-from app.rag.embed import embed_passages
+from app.rag.embed import embed_passages, embed_query
 from app.storage import get_s3
 from app.worker import celery_app
 
@@ -59,3 +60,12 @@ def ingest_source(source_id: str) -> None:
         source.ingest_status = ProcessingStatus.DONE
         db.commit()
         log.info("Ingested %s: %d chunks", source.title, source.chunk_count)
+
+
+@worker_process_init.connect
+def warm_embedding_model(**_) -> None:
+    """Load the model as each worker process starts (it takes ~30 s cold), so the first
+    evaluation during a demo doesn't pay for it. Skipped when no handbook is loaded."""
+    with SessionLocal() as db:
+        if db.scalar(select(func.count()).select_from(RegulatorySource)):
+            embed_query("warm up")

@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pymupdf
 from PIL import Image, ImageFilter
 
@@ -88,21 +89,35 @@ class Page:
         self.y += gap
 
 
+# Degradation for "poor" and "good" scans. Tuned so the poor scan is readable but OCR reports
+# low confidence on some values (they must be flagged for review, never silently trusted).
+# Note: at some other noise/blur levels Tesseract misreads a name *with* high confidence; the
+# faculty-list ↔ certificate name check is the backstop for that (see README limitations).
+SCAN_PROFILES = {
+    "good": {"dpi": 200, "skew": 0.6, "sigma": 25, "blend": 0.07, "blur": 0.4, "quality": 75},
+    "poor": {"dpi": 100, "skew": 1.6, "sigma": 90, "blend": 0.3, "blur": 1.1, "quality": 15},
+}
+
+
 def scan(pdf_bytes: bytes, rng: random.Random, quality: str) -> bytes:
-    """Rasterize like a photocopy: grayscale, slight skew, noise, blur, JPEG artefacts."""
-    poor = quality == "poor"
+    """Rasterize like a photocopy: grayscale, slight skew, noise, blur, JPEG artefacts.
+    Deterministic for a given rng state."""
+    p = SCAN_PROFILES[quality]
     src = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     out = pymupdf.open()
     for page in src:
-        pix = page.get_pixmap(dpi=100 if poor else 200, colorspace=pymupdf.csGRAY)
+        pix = page.get_pixmap(dpi=p["dpi"], colorspace=pymupdf.csGRAY)
         img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
-        img = img.rotate(rng.uniform(-1.6, 1.6) if poor else rng.uniform(-0.6, 0.6),
-                         fillcolor=255, resample=Image.Resampling.BICUBIC)  # fmt: skip
-        noise = Image.effect_noise(img.size, 90 if poor else 25)
-        img = Image.blend(img, noise, 0.3 if poor else 0.07)
-        img = img.filter(ImageFilter.GaussianBlur(1.2 if poor else 0.4))
+        img = img.rotate(rng.uniform(-p["skew"], p["skew"]), fillcolor=255,
+                         resample=Image.Resampling.BICUBIC)  # fmt: skip
+        # Seeded Gaussian noise (PIL's effect_noise is unseeded, which made scans, and
+        # therefore OCR confidence, differ between runs).
+        gen = np.random.default_rng(rng.randrange(2**32))
+        pixels = gen.normal(128, p["sigma"], (img.height, img.width)).clip(0, 255)
+        img = Image.blend(img, Image.fromarray(pixels.astype(np.uint8), mode="L"), p["blend"])
+        img = img.filter(ImageFilter.GaussianBlur(p["blur"]))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=15 if poor else 75)
+        img.save(buf, format="JPEG", quality=p["quality"])
         new = out.new_page(width=page.rect.width, height=page.rect.height)
         new.insert_image(new.rect, stream=buf.getvalue())
     return out.tobytes(deflate=True)

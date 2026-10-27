@@ -105,9 +105,16 @@ The first handbook ingestion downloads a ~70 MB embedding model into the `models
 
 ## Demo walkthrough
 
+The full playbook (preparation, 7-minute run sheet, fallbacks, Q&A) is in
+[docs/DEMO.md](docs/DEMO.md); measured numbers are in [docs/METRICS.md](docs/METRICS.md).
+
 ```bash
-docker compose exec backend python -m app.synthetic   # 43 synthetic documents in ./data/synthetic/abc_institute
+docker compose exec backend python -m app.demo prefetch     # demo PDFs + embedding model
+docker compose exec backend python -m app.demo preflight    # is everything up?
+docker compose exec backend python -m app.demo load --stage draft   # preload the application
 ```
+
+Or by hand:
 
 1. **Institution** → *New application* (Extension of Approval, 2026-27, intake 120, 20 faculty).
    Upload everything from `data/synthetic/abc_institute/` **except** `building_certificate.pdf`
@@ -143,7 +150,7 @@ docker compose exec backend python -m app.synthetic   # 43 synthetic documents i
 | `audit.py` | Append-only event log written in the caller's transaction | `record_event(...)` |
 | `checklists.py` | Required documents per application type (**placeholder**, see limitations) | `APPLICATION_TYPES` |
 | `seed.py` | Idempotent bootstrap: bucket, demo users, rules sync, checkpoint tables | `python -m app.seed` |
-| `synthetic.py` | Deterministic synthetic document set with ground truth and planted issues | `python -m app.synthetic` |
+| `synthetic.py` | Deterministic synthetic document set with ground truth and planted issues (scans use seeded noise, so OCR results are reproducible) | `python -m app.synthetic` |
 
 #### `api/` — HTTP layer
 
@@ -244,6 +251,18 @@ Events: `None` (start), `documents_changed`, `reevaluate`, `request_clarificatio
 Renewals: outside draft/clarification, an institution may still **replace a document that an open
 expiry alert points at** (recorded as `compliance_document_updated`); processing it clears the alert.
 
+#### `demo/` — demo tooling
+
+| File | Does |
+|---|---|
+| `scenario.py` | The demo story as asserted stages (`draft → submitted → clarification → resubmitted → approved → renewed`), driven through the real HTTP API and worker |
+| `client.py` | Minimal API client (per-role login) and polling helper |
+| `ops.py` | `reset` (dev only; keeps users, rules, handbooks), `preflight` (API, migrations, Redis, S3, worker queues, beat heartbeat, OCR, embedding model **offline**, accounts, rules, handbook, demo files), `prefetch`, `metrics` |
+| `__main__.py` | CLI: `python -m app.demo {prefetch,preflight,reset,load,rehearse,metrics}` |
+
+`rehearse --times N` resets and runs the whole story N times, failing loudly at the first
+unexpected result; `load --stage S` recovers a live demo at any point.
+
 **To add a monitored obligation:** write a detector `(db, application, now) -> list[Obligation]`
 in `obligations.py`, add it to `DETECTORS`, give it a stable `dedup_key`, and add a test.
 
@@ -278,9 +297,11 @@ React 19 + TypeScript + Vite + Tailwind 4, TanStack Query for server state.
 |---|---|
 | `docker-compose.yml` | Postgres 17 + pgvector, Redis, SeaweedFS (S3), backend, worker, **beat** (scheduler), frontend. Backend, worker and beat share one image. |
 | `backend/Dockerfile` | Python 3.12 + uv + Tesseract |
+| `docker-compose.offline.yml` | Override that blocks all outbound internet for the Python services (unreachable proxy, Hugging Face offline) to prove the demo needs none |
 | `infra/seaweedfs-s3.json` | S3 credentials for SeaweedFS |
 | `.github/workflows/ci.yml` | Backend (ruff, migrations, `alembic check`, pytest with Tesseract, S3 and cached model) and frontend (typecheck + build) |
 | `data/` (git-ignored) | Synthetic documents, downloaded handbooks |
+| `docs/` | `PLAN.md` (build plan), `DEMO.md` (demo playbook), `METRICS.md` (measured numbers) |
 
 ---
 
@@ -421,6 +442,19 @@ Then, as admin, open **Rules**, use *Find clause* on each draft rule, read the p
 *Verify* the clause that states the norm. If the handbook's number differs from the rule's
 params, add a new rule version in `rules.yaml` instead of verifying.
 
+### Running offline
+
+Nothing at runtime needs the internet once images are built and `python -m app.demo prefetch`
+has run (it caches the embedding model). To prove it:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d --force-recreate
+docker compose exec backend python -m app.demo rehearse --times 3
+```
+
+The frontend reinstalls packages only when `package-lock.json` changes, and keeps them in a named
+volume, so it restarts offline too.
+
 ### Synthetic documents and extraction accuracy
 
 ```bash
@@ -428,8 +462,9 @@ docker compose exec backend python -m app.synthetic          # ./data/synthetic/
 docker compose exec backend python -m app.docintel.evaluate  # field-level accuracy vs ground truth
 ```
 
-Current result: classification 100%, fields 98.8% correct, 1.2% flagged for review, 0% silently
-wrong. Synthetic documents are cleaner than real ones; re-measure on real samples.
+Current result: classification 100%, fields 99.4% correct, 0.6% wrong-but-flagged for review,
+0% silently wrong (see [docs/METRICS.md](docs/METRICS.md)). Synthetic documents are cleaner than
+real ones; re-measure on real samples.
 
 ---
 
@@ -443,6 +478,8 @@ wrong. Synthetic documents are cleaner than real ones; re-measure on real sample
 - `test_monitoring.py` covers deduplication, time-driven overdue/escalation (simulated scans),
   automatic resolution by renewal, manual resolution, clarification deadlines and review SLAs.
 - `tests/fixtures.py` contains a *test-only* regulation PDF; it is not AICTE text.
+- `python -m app.demo rehearse` is the end-to-end check against the *running* stack (real
+  worker, beat, storage); run it before any demo.
 - CI runs on every push and PR (see `.github/workflows/ci.yml`).
 
 Branch from `main` (`feat/...`, `fix/...`), open a PR, CI must pass. One milestone may be several
@@ -455,6 +492,9 @@ small PRs; keep `main` demo-able.
 - **Handbook not loaded.** Regulatory rules stay *draft* (findings marked provisional) until the
   APH 2024-27 is ingested and each rule is verified against its clause.
 - **Placeholder checklist.** `checklists.py` lists illustrative documents; replace with the APH list.
+- **OCR confidence isn't a guarantee.** While tuning the synthetic poor scan, some noise/blur
+  levels made Tesseract misread a name *with* high confidence. Cross-document checks (faculty
+  list ↔ certificate) are the backstop; don't rely on the confidence threshold alone.
 - **Pattern-based extraction.** Works on the layouts it was written for; real documents vary. An
   LLM fallback for fields the patterns miss is planned once a provider is chosen.
 - **Single decision role.** Any reviewer can approve/reject; production needs a separate,

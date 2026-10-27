@@ -1,0 +1,27 @@
+# Simulates "no internet at the venue": every outbound HTTP(S) request from the Python services
+# goes to an unreachable proxy, while traffic between our own containers is exempt, and the
+# Hugging Face hub is forced offline. Use it to prove the demo has no runtime internet
+# dependency (prerequisite: images built and `python -m app.demo prefetch` already run):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+#   docker compose exec backend python -m app.demo rehearse --times 3
+#
+x-offline: &offline
+  HTTP_PROXY: http://127.0.0.1:9
+  HTTPS_PROXY: http://127.0.0.1:9
+  http_proxy: http://127.0.0.1:9
+  https_proxy: http://127.0.0.1:9
+  NO_PROXY: localhost,127.0.0.1,db,redis,storage,backend,worker
+  no_proxy: localhost,127.0.0.1,db,redis,storage,backend,worker
+  HF_HUB_OFFLINE: "1"
+
+services:
+  backend:
+    environment: *offline
+  worker:
+    environment: *offline
+  beat:
+    environment: *offline
+  frontend:
+    environment:
+      npm_config_offline: "true"
