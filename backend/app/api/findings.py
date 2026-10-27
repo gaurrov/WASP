@@ -22,7 +22,8 @@ from app.models import (
     User,
 )
 from app.models.enums import ApplicationStatus, FindingStatus, RuleStatus, Severity, UserRole
-from app.rules.tasks import enqueue_evaluation
+from app.workflow.reviews import latest_reviews
+from app.workflow.tasks import send_event
 
 router = APIRouter(tags=["findings"])
 
@@ -66,6 +67,13 @@ class CitationOut(BaseModel):
     verified: bool  # the clause an admin approved, vs. a retrieved candidate
 
 
+class ReviewOut(BaseModel):
+    outcome: str
+    comment: str | None
+    reviewer: str
+    created_at: datetime
+
+
 class FindingOut(BaseModel):
     id: uuid.UUID
     status: FindingStatus
@@ -77,6 +85,7 @@ class FindingOut(BaseModel):
     rule: RuleRef
     evidence: list[EvidenceOut]
     citations: list[CitationOut]
+    review: ReviewOut | None
 
 
 STATUS_ORDER = {
@@ -117,6 +126,8 @@ def list_findings(application_id: uuid.UUID, user: CurrentUser, db: DB) -> list[
         )
     }
     threshold = get_settings().low_confidence_threshold
+    reviews = latest_reviews(db, [f.id for f in findings])
+    reviewers = {u.id: u.full_name for u in db.scalars(select(User))}
 
     out = []
     for f in findings:
@@ -179,6 +190,14 @@ def list_findings(application_id: uuid.UUID, user: CurrentUser, db: DB) -> list[
                 ),
                 evidence=evidence,
                 citations=citations,
+                review=ReviewOut(
+                    outcome=r.outcome.value,
+                    comment=r.comment,
+                    reviewer=reviewers.get(r.reviewer_id, "unknown"),
+                    created_at=r.created_at,
+                )
+                if (r := reviews.get(f.id))
+                else None,
             )
         )
     out.sort(key=lambda x: (STATUS_ORDER[x.status], SEVERITY_ORDER[x.severity], x.rule.code))
@@ -192,5 +211,5 @@ def reevaluate(application_id: uuid.UUID, user: Staff, db: DB) -> dict[str, str]
         raise HTTPException(status_code=409, detail="Drafts are evaluated after submission")
     record_event(db, "evaluation_requested", application_id=application.id, actor_id=user.id)
     db.commit()
-    enqueue_evaluation(application.id)
+    send_event(application.id, {"type": "reevaluate", "actor_id": str(user.id)})
     return {"status": "queued"}

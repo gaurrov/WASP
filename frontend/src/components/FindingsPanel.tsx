@@ -8,8 +8,13 @@ import {
   type ApplicationDetail,
   type Finding,
   type FindingStatus,
+  type Workflow,
+  reviewFinding,
 } from "../applications";
 import { useAuth } from "../auth";
+import { useInvalidateCase } from "./WorkflowPanel";
+
+const OPEN_STATUSES: FindingStatus[] = ["fail", "needs_review", "unable_to_determine"];
 
 const STATUS: Record<FindingStatus, { label: string; style: string; icon: string }> = {
   fail: { label: "Fail", style: "bg-red-50 text-red-700 border-red-200", icon: "✕" },
@@ -24,14 +29,21 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export default function FindingsPanel({ app }: { app: ApplicationDetail }) {
+export default function FindingsPanel({
+  app,
+  workflow,
+}: {
+  app: ApplicationDetail;
+  workflow?: Workflow;
+}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isStaff = user?.role === "reviewer" || user?.role === "admin";
   const evaluating = app.status === "submitted" || app.status === "processing";
 
   const { data: findings } = useQuery({
-    queryKey: ["findings", app.id],
+    // A new evaluation round or status change means new findings.
+    queryKey: ["findings", app.id, workflow?.round ?? 0, app.status],
     queryFn: () => fetchFindings(app.id),
     refetchInterval: evaluating ? 2000 : false,
   });
@@ -67,7 +79,7 @@ export default function FindingsPanel({ app }: { app: ApplicationDetail }) {
               ) : null,
           )}
         </div>
-        {isStaff && (
+        {isStaff && workflow?.waiting_for === "reviewer" && (
           <button
             onClick={() => rerun.mutate()}
             disabled={rerun.isPending || evaluating}
@@ -77,13 +89,25 @@ export default function FindingsPanel({ app }: { app: ApplicationDetail }) {
           </button>
         )}
       </div>
+      {workflow && workflow.round > 1 && (
+        <p className="border-b bg-slate-50 px-4 py-2 text-xs text-slate-600">
+          Round {workflow.round}: re-checked {workflow.rechecked.length} of {workflow.total_rules}{" "}
+          rules affected by the changed documents ({workflow.rechecked.join(", ")}); the rest
+          carried over unchanged.
+        </p>
+      )}
 
       {evaluating && (!findings || findings.length === 0) ? (
         <p className="px-4 py-6 text-sm text-slate-500">Running compliance checks…</p>
       ) : findings && findings.length > 0 ? (
         <ul className="divide-y">
           {findings.map((f) => (
-            <FindingRow key={f.id} finding={f} />
+            <FindingRow
+              key={f.id}
+              finding={f}
+              canReview={isStaff && workflow?.waiting_for === "reviewer"}
+              applicationId={app.id}
+            />
           ))}
         </ul>
       ) : (
@@ -93,7 +117,15 @@ export default function FindingsPanel({ app }: { app: ApplicationDetail }) {
   );
 }
 
-function FindingRow({ finding: f }: { finding: Finding }) {
+function FindingRow({
+  finding: f,
+  canReview,
+  applicationId,
+}: {
+  finding: Finding;
+  canReview: boolean;
+  applicationId: string;
+}) {
   const [open, setOpen] = useState(f.status !== "pass");
   const s = STATUS[f.status];
   const expiring = f.details.expiring_soon === true;
@@ -125,12 +157,22 @@ function FindingRow({ finding: f }: { finding: Finding }) {
                 expiring soon
               </span>
             )}
+            {f.review && (
+              <span
+                title={f.review.comment ?? undefined}
+                className={`rounded px-1.5 text-[11px] ${
+                  f.review.outcome === "override" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {f.review.outcome === "override" ? "overridden" : "confirmed"} by {f.review.reviewer}
+              </span>
+            )}
           </div>
           <p className="mt-0.5 text-sm text-slate-600">{f.reason}</p>
         </div>
       </button>
 
-      {open && (f.evidence.length > 0 || f.citations.length > 0 || f.provisional) && (
+      {open && (f.evidence.length > 0 || f.citations.length > 0 || f.provisional || canReview) && (
         <div className="mt-3 space-y-3 pl-8">
           {f.evidence.length > 0 && (
             <div>
@@ -183,6 +225,15 @@ function FindingRow({ finding: f }: { finding: Finding }) {
             </div>
           )}
 
+          {f.review?.comment && (
+            <p className="text-xs text-slate-600">
+              <span className="font-medium">Reviewer:</span> {f.review.comment}
+            </p>
+          )}
+          {canReview && OPEN_STATUSES.includes(f.status) && (
+            <ReviewControls findingId={f.id} applicationId={applicationId} />
+          )}
+
           {f.provisional && f.rule.norm_note && (
             <p className="text-xs text-slate-500">
               <span className="font-medium">Where this norm comes from:</span> {f.rule.norm_note}
@@ -191,5 +242,42 @@ function FindingRow({ finding: f }: { finding: Finding }) {
         </div>
       )}
     </li>
+  );
+}
+
+function ReviewControls({ findingId, applicationId }: { findingId: string; applicationId: string }) {
+  const invalidate = useInvalidateCase(applicationId);
+  const [comment, setComment] = useState("");
+  const review = useMutation({
+    mutationFn: (outcome: "confirm" | "override") => reviewFinding(findingId, outcome, comment || undefined),
+    onSuccess: () => {
+      setComment("");
+      invalidate();
+    },
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
+      <input
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Comment (required to override)"
+        className="min-w-48 flex-1 rounded border px-2 py-1 text-xs"
+      />
+      <button
+        onClick={() => review.mutate("confirm")}
+        disabled={review.isPending}
+        className="rounded border px-2 py-1 text-xs text-slate-800 hover:bg-slate-50"
+      >
+        Confirm deficiency
+      </button>
+      <button
+        onClick={() => review.mutate("override")}
+        disabled={review.isPending || comment.trim().length < 5}
+        className="rounded border border-violet-300 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50 disabled:opacity-40"
+      >
+        Override
+      </button>
+      {review.error && <span className="text-xs text-red-600">{review.error.message}</span>}
+    </div>
   );
 }

@@ -28,6 +28,7 @@ from app.models import Base, Institution, User  # noqa: E402
 from app.models.enums import UserRole  # noqa: E402
 from app.rules.engine import sync_rules  # noqa: E402
 from app.storage import ensure_bucket  # noqa: E402
+from app.workflow.runner import setup_checkpointer  # noqa: E402
 
 PASSWORD = "test-password"
 
@@ -40,6 +41,7 @@ def test_database() -> None:
             conn.execute(text("CREATE DATABASE wasp_test"))
     admin.dispose()
     command.upgrade(Config("alembic.ini"), "head")
+    setup_checkpointer()
     ensure_bucket()
 
 
@@ -48,7 +50,10 @@ def clean_tables() -> Iterator[None]:
     with SessionLocal() as db:
         sync_rules(db)  # rules are reference data; tests (e.g. verification) may change them
     yield
-    tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
+    tables = ", ".join(
+        [t.name for t in Base.metadata.sorted_tables]
+        + ["checkpoints", "checkpoint_blobs", "checkpoint_writes"]  # LangGraph case state
+    )
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} CASCADE"))
 

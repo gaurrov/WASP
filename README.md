@@ -90,6 +90,8 @@ To add backend dependencies: `cd backend && uv add <package>`, then `docker comp
 backend/
   app/
     api/          FastAPI routers (auth, applications + documents)
+    workflow/     LangGraph case workflow (Postgres-checkpointed): extraction wait, evaluation,
+                  reviewer interrupt, clarification round-trip, incremental re-validation, decision
     rules/        rules.yaml + deterministic evaluators + engine (findings with evidence/citations)
     rag/          handbook chunking by clause, local embeddings, hybrid search (FTS + pgvector)
     docintel/     text (PyMuPDF / Tesseract OCR) → classify → field extraction, Celery task, evaluation
@@ -108,8 +110,7 @@ infra/            service config (SeaweedFS S3 credentials)
 docs/PLAN.md      build plan
 ```
 
-Coming in later milestones: `app/workflow/` (LangGraph),
-`app/monitoring/` (alerts).
+Coming in later milestones: `app/monitoring/` (alerts).
 
 ## Workflow
 

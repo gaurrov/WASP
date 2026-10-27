@@ -11,9 +11,9 @@ from app.db import SessionLocal
 from app.docintel.pipeline import EXTRACTOR_NAME, process
 from app.models import Document, ExtractedFact
 from app.models.enums import ApplicationStatus, ProcessingStatus
-from app.rules.tasks import enqueue_evaluation
 from app.storage import get_s3
 from app.worker import celery_app
+from app.workflow.tasks import send_event
 
 log = logging.getLogger(__name__)
 
@@ -84,4 +84,4 @@ def process_document(document_id: str) -> None:
         db.commit()
         # Facts changed, so findings for an application under review are stale.
         if document.application.status != ApplicationStatus.DRAFT:
-            enqueue_evaluation(document.application_id)
+            send_event(document.application_id, {"type": "documents_changed"})

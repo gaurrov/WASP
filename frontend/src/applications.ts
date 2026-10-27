@@ -219,6 +219,7 @@ export interface Finding {
   };
   evidence: Evidence[];
   citations: Citation[];
+  review: { outcome: "confirm" | "override"; comment: string | null; reviewer: string; created_at: string } | null;
 }
 
 export const fetchFindings = (applicationId: string) =>
@@ -291,3 +292,43 @@ export function uploadSource(file: File, fields: Record<string, string>) {
   for (const [k, v] of Object.entries(fields)) if (v) form.append(k, v);
   return api<RegulatorySource>("/regulatory/sources", { method: "POST", body: form });
 }
+
+// --- Workflow ---------------------------------------------------------------------------
+
+export interface WorkflowEvent {
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  actor: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Workflow {
+  started: boolean;
+  finished: boolean;
+  waiting_for: "extraction" | "reviewer" | "institution" | null;
+  round: number;
+  rechecked: string[];
+  total_rules: number;
+  clarification: { message: string; finding_ids: string[]; requested_at: string } | null;
+  decision: { decision: "approve" | "reject"; reason: string; decided_at: string } | null;
+  unreviewed_findings: number;
+  confirmed_deficiencies: number;
+  events: WorkflowEvent[];
+}
+
+export const fetchWorkflow = (applicationId: string) =>
+  api<Workflow>(`/applications/${applicationId}/workflow`);
+
+export const reviewFinding = (findingId: string, outcome: "confirm" | "override", comment?: string) =>
+  apiJson<{ status: string }>(`/findings/${findingId}/review`, "POST", { outcome, comment });
+
+export const requestClarification = (applicationId: string, message: string, findingIds: string[]) =>
+  apiJson<{ status: string }>(`/applications/${applicationId}/clarification`, "POST", {
+    message,
+    finding_ids: findingIds,
+  });
+
+export const decideApplication = (applicationId: string, decision: "approve" | "reject", reason: string) =>
+  apiJson<{ status: string }>(`/applications/${applicationId}/decision`, "POST", { decision, reason });

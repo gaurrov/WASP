@@ -5,6 +5,7 @@ import {
   EDITABLE,
   deleteDocument,
   fetchApplication,
+  fetchWorkflow,
   isProcessing,
   submitApplication,
   uploadDocument,
@@ -13,6 +14,7 @@ import {
 } from "../applications";
 import { useAuth } from "../auth";
 import FindingsPanel from "../components/FindingsPanel";
+import { CaseBanner, Timeline } from "../components/WorkflowPanel";
 import Layout from "../components/Layout";
 import StatusBadge from "../components/StatusBadge";
 
@@ -39,8 +41,24 @@ export default function ApplicationDetail() {
     },
   });
 
+  const { data: workflow } = useQuery({
+    queryKey: ["workflow", id],
+    queryFn: () => fetchWorkflow(id),
+    enabled: !!app && app.status !== "draft",
+    // Poll while the case is running in the background (extraction / evaluation).
+    refetchInterval: (q) =>
+      !q.state.data?.started ||
+      q.state.data.waiting_for === "extraction" ||
+      app?.status === "submitted" ||
+      app?.status === "processing"
+        ? 2000
+        : false,
+  });
+
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["application", id] });
+    for (const key of ["application", "workflow", "findings"]) {
+      queryClient.invalidateQueries({ queryKey: [key, id] });
+    }
     queryClient.invalidateQueries({ queryKey: ["applications"] });
   };
 
@@ -135,7 +153,8 @@ export default function ApplicationDetail() {
       {app.status === "draft" && (
         <MissingBanner app={app} isInstitution={user?.role === "institution"} />
       )}
-      {app.status !== "draft" && <FindingsPanel app={app} />}
+      <CaseBanner app={app} workflow={workflow} />
+      {app.status !== "draft" && <FindingsPanel app={app} workflow={workflow} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[16rem_1fr]">
         <section className="h-fit rounded-lg border bg-white p-4">
@@ -228,6 +247,7 @@ export default function ApplicationDetail() {
           </ul>
         </section>
       </div>
+      {workflow?.started && <Timeline workflow={workflow} />}
     </Layout>
   );
 }

@@ -19,8 +19,8 @@ from app.db import get_db
 from app.docintel.tasks import enqueue_processing
 from app.models import Application, Document, ExtractedFact, Institution, User
 from app.models.enums import ApplicationStatus, DocumentType, ProcessingStatus, UserRole
-from app.rules.tasks import enqueue_evaluation
 from app.storage import get_s3
+from app.workflow.tasks import send_event
 
 router = APIRouter(tags=["applications"])
 
@@ -320,7 +320,12 @@ def upload_document(
         replaced = db.get(Document, replaces_id)
         if replaced is None or replaced.application_id != application.id or not replaced.is_current:
             raise HTTPException(status_code=404, detail="Document to replace not found")
-        doc_type = doc_type or replaced.doc_type
+        if doc_type is not None and doc_type != replaced.doc_type:
+            raise HTTPException(
+                status_code=422,
+                detail=f"A replacement must be the same type ({replaced.doc_type.value})",
+            )
+        doc_type = replaced.doc_type
     if doc_type is None:
         raise HTTPException(status_code=422, detail="doc_type is required")
 
@@ -418,19 +423,24 @@ def submit_application(
 ) -> ApplicationDetail:
     application = load_application(db, application_id, user)
     require_editable(application)
-    # Missing documents don't block submission: completeness becomes a reviewable finding (M3).
+    # Missing documents don't block submission: completeness becomes a reviewable finding.
     previous = application.status
+    resubmission = previous == ApplicationStatus.CLARIFICATION_REQUESTED
     application.status = ApplicationStatus.SUBMITTED
-    application.submitted_at = datetime.now(UTC)
+    if resubmission:
+        application.clarification = None
+    else:
+        application.submitted_at = datetime.now(UTC)
     record_event(
         db,
-        "application_submitted",
+        "application_resubmitted" if resubmission else "application_submitted",
         application_id=application.id,
         actor_id=user.id,
         from_status=previous,
         to_status=ApplicationStatus.SUBMITTED,
     )
     db.commit()
-    enqueue_evaluation(application.id)
-    db.refresh(application)  # evaluation may already have run (eager mode in tests)
+    # Starts the case workflow, or resumes it where it waits for the institution.
+    send_event(application.id, {"type": "resubmitted"} if resubmission else None)
+    db.refresh(application)  # the workflow may already have run (eager mode in tests)
     return build_detail(db, application)

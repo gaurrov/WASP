@@ -22,6 +22,10 @@ class Application(IdMixin, TimestampMixin, Base):
     # Declared values from the application form, compared against extracted evidence.
     declared: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Open clarification request: {message, finding_ids, requested_by, requested_at}.
+    clarification: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Final authorized decision: {decision, reason, decided_by, decided_at}.
+    decision: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="application")
 
