@@ -49,6 +49,21 @@ docker compose exec backend alembic upgrade head
 
 After editing a model, always generate a migration and review it before committing.
 
+### Loading the AICTE handbook (needed for citations)
+
+Download the official **Approval Process Handbook 2024-25 to 2026-27** PDF from
+[aicte-india.org](https://www.aicte-india.org/bureaus/approval/ap_documents), then either upload
+it as admin on the **Handbook** page, or:
+
+```bash
+# put the PDF at ./data/regulatory/APH_2024-27.pdf, then
+docker compose exec backend python -m app.rag.load /data/regulatory/APH_2024-27.pdf   --title "AICTE Approval Process Handbook" --version 2024-27   --effective-from 2024-07-01 --effective-to 2027-06-30
+```
+
+Then, as admin, open **Rules**, use *Find clause* on each draft rule, read the passages, and
+*Verify* the clause that states the norm. If the handbook's number differs from the rule's
+params, add a new rule version in `backend/app/rules/rules.yaml` instead of verifying.
+
 ### Synthetic documents and extraction accuracy
 
 ```bash
@@ -75,6 +90,8 @@ To add backend dependencies: `cd backend && uv add <package>`, then `docker comp
 backend/
   app/
     api/          FastAPI routers (auth, applications + documents)
+    rules/        rules.yaml + deterministic evaluators + engine (findings with evidence/citations)
+    rag/          handbook chunking by clause, local embeddings, hybrid search (FTS + pgvector)
     docintel/     text (PyMuPDF / Tesseract OCR) → classify → field extraction, Celery task, evaluation
     synthetic.py  synthetic document generator with ground truth
     checklists.py required documents per application type (placeholder until APH rules in M3)
@@ -91,8 +108,7 @@ infra/            service config (SeaweedFS S3 credentials)
 docs/PLAN.md      build plan
 ```
 
-Coming in later milestones: `app/rag/` (regulatory hybrid
-retrieval), `app/rules/` (versioned rule evaluators), `app/workflow/` (LangGraph),
+Coming in later milestones: `app/workflow/` (LangGraph),
 `app/monitoring/` (alerts).
 
 ## Workflow

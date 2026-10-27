@@ -20,6 +20,16 @@ export default function Layout({ children }: { children: ReactNode }) {
             <NavLink to="/applications" className={navLink}>
               {user.role === "institution" ? "My applications" : "Review queue"}
             </NavLink>
+            {user.role !== "institution" && (
+              <>
+                <NavLink to="/rules" className={navLink}>
+                  Rules
+                </NavLink>
+                <NavLink to="/handbook" className={navLink}>
+                  Handbook
+                </NavLink>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span className="hidden text-slate-600 sm:inline">{user.full_name}</span>

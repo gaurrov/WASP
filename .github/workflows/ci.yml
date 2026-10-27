@@ -26,6 +26,7 @@ jobs:
     env:
       WASP_DATABASE_URL: postgresql+psycopg://wasp:wasp@localhost:5432/wasp
       OMP_THREAD_LIMIT: "1"
+      WASP_MODEL_CACHE_DIR: /home/runner/.cache/wasp-models
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -40,6 +41,11 @@ jobs:
           -v ${{ github.workspace }}/infra/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
           chrislusf/seaweedfs:4.50
           server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/wasp-models
+          key: embeddings-bge-small-en-v1.5
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .

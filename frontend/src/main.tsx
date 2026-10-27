@@ -7,9 +7,11 @@ import "./index.css";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import ApplicationsList from "./pages/ApplicationsList";
 import Dashboard from "./pages/Dashboard";
+import HandbookPage from "./pages/HandbookPage";
 import DocumentViewer from "./pages/DocumentViewer";
 import Login from "./pages/Login";
 import NewApplication from "./pages/NewApplication";
+import RulesPage from "./pages/RulesPage";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +33,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/applications/new" element={<RequireAuth><NewApplication /></RequireAuth>} />
             <Route path="/applications/:id" element={<RequireAuth><ApplicationDetail /></RequireAuth>} />
             <Route path="/documents/:id" element={<RequireAuth><DocumentViewer /></RequireAuth>} />
+            <Route path="/rules" element={<RequireAuth><RulesPage /></RequireAuth>} />
+            <Route path="/handbook" element={<RequireAuth><HandbookPage /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

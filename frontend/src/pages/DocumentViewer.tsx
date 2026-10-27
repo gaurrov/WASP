@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import {
   fetchDocument,
   fetchPageImage,
@@ -31,7 +31,9 @@ export default function DocumentViewer() {
   const { id = "" } = useParams();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  // Evidence links from findings open the viewer with that fact preselected.
+  const [selected, setSelected] = useState<string | null>(searchParams.get("fact"));
 
   const { data: doc, error } = useQuery({
     queryKey: ["document", id],

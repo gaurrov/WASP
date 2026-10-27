@@ -13,18 +13,18 @@ interface Section {
 const SECTIONS: Record<Role, Section[]> = {
   institution: [
     { title: "My applications", description: "Create applications and upload documents.", to: "/applications" },
-    { title: "Deficiencies", description: "Findings that need evidence or clarification.", milestone: "M3" },
+    { title: "Compliance check", description: "See what each submitted application is missing.", to: "/applications" },
     { title: "Alerts", description: "Expiring certificates and upcoming deadlines.", milestone: "M5" },
   ],
   reviewer: [
     { title: "Review queue", description: "Submitted applications and their document checklists.", to: "/applications" },
-    { title: "Evidence viewer", description: "Each finding linked to its document page and clause.", milestone: "M3" },
+    { title: "Compliance rules", description: "Rules, their norms and handbook verification.", to: "/rules" },
     { title: "Alerts", description: "Escalations and overdue institution actions.", milestone: "M5" },
   ],
   admin: [
     { title: "All applications", description: "Every application across institutions.", to: "/applications" },
-    { title: "Compliance rules", description: "Versioned rules mapped to APH clauses.", milestone: "M3" },
-    { title: "Regulatory sources", description: "Ingested handbooks and circulars.", milestone: "M3" },
+    { title: "Compliance rules", description: "Verify rules against handbook clauses.", to: "/rules" },
+    { title: "Regulatory handbook", description: "Upload and search official sources.", to: "/handbook" },
   ],
 };
 

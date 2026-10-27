@@ -50,7 +50,7 @@ services:
       sh -c "alembic upgrade head && python -m app.seed &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports: ["8000:8000"]
-    volumes: [./backend:/app, ./data:/data]
+    volumes: [./backend:/app, ./data:/data, models:/models]
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -60,7 +60,7 @@ services:
     image: wasp-backend:dev
     environment: *backend-env
     command: celery -A app.worker worker -Q default,documents,monitoring --loglevel=info
-    volumes: [./backend:/app, ./data:/data]
+    volumes: [./backend:/app, ./data:/data, models:/models]
     depends_on:
       backend: { condition: service_started }
 
@@ -81,3 +81,4 @@ services:
 volumes:
   pgdata:
   storagedata:
+  models:  # embedding model cache, downloaded once

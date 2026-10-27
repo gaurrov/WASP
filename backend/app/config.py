@@ -25,8 +25,10 @@ class Settings(BaseSettings):
     # Extracted values below this confidence are flagged for human verification.
     low_confidence_threshold: float = 0.80
 
-    # Embedding size for regulatory chunks; must match the embedding model chosen in M3.
-    embedding_dim: int = 768
+    # Local ONNX embedding model (fastembed, no GPU/torch). Dimension must match the model.
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_dim: int = 384
+    model_cache_dir: str = "/models"
 
 
 @lru_cache
