@@ -26,6 +26,7 @@ from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base, Institution, User  # noqa: E402
 from app.models.enums import UserRole  # noqa: E402
+from app.rules.engine import sync_rules  # noqa: E402
 from app.storage import ensure_bucket  # noqa: E402
 
 PASSWORD = "test-password"
@@ -44,6 +45,8 @@ def test_database() -> None:
 
 @pytest.fixture(autouse=True)
 def clean_tables() -> Iterator[None]:
+    with SessionLocal() as db:
+        sync_rules(db)  # rules are reference data; tests (e.g. verification) may change them
     yield
     tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
     with engine.begin() as conn:

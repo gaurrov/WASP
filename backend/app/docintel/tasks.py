@@ -10,7 +10,8 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.docintel.pipeline import EXTRACTOR_NAME, process
 from app.models import Document, ExtractedFact
-from app.models.enums import ProcessingStatus
+from app.models.enums import ApplicationStatus, ProcessingStatus
+from app.rules.tasks import enqueue_evaluation
 from app.storage import get_s3
 from app.worker import celery_app
 
@@ -81,3 +82,6 @@ def process_document(document_id: str) -> None:
             ocr_used=result.text.ocr_used,
         )
         db.commit()
+        # Facts changed, so findings for an application under review are stale.
+        if document.application.status != ApplicationStatus.DRAFT:
+            enqueue_evaluation(document.application_id)

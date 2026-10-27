@@ -164,3 +164,130 @@ export async function openDocument(documentId: string): Promise<void> {
   }
   tab.location.href = URL.createObjectURL(await res.blob());
 }
+
+// --- Findings ---------------------------------------------------------------------------
+
+export type FindingStatus =
+  | "pass"
+  | "fail"
+  | "needs_review"
+  | "not_applicable"
+  | "unable_to_determine";
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
+
+export interface Citation {
+  chunk_id: string;
+  source_title: string;
+  source_version: string;
+  section: string | null;
+  heading: string | null;
+  page: number | null;
+  text: string;
+  verified: boolean;
+}
+
+export interface Evidence {
+  fact_id: string;
+  document_id: string;
+  filename: string;
+  field_name: string;
+  value: unknown;
+  raw_text: string | null;
+  confidence: number;
+  low_confidence: boolean;
+  page: number | null;
+}
+
+export interface Finding {
+  id: string;
+  status: FindingStatus;
+  severity: Severity;
+  reason: string;
+  details: Record<string, unknown>;
+  provisional: boolean;
+  created_at: string;
+  rule: {
+    id: string;
+    code: string;
+    version: number;
+    title: string;
+    internal: boolean;
+    status: RuleStatus;
+    norm_note: string | null;
+    source_section: string | null;
+    source_page: number | null;
+  };
+  evidence: Evidence[];
+  citations: Citation[];
+}
+
+export const fetchFindings = (applicationId: string) =>
+  api<Finding[]>(`/applications/${applicationId}/findings`);
+
+export const reevaluate = (applicationId: string) =>
+  api<{ status: string }>(`/applications/${applicationId}/evaluate`, { method: "POST" });
+
+// --- Rules and regulatory sources -------------------------------------------------------
+
+export type RuleStatus = "draft" | "reviewed" | "approved" | "retired";
+
+export interface Rule {
+  id: string;
+  rule_code: string;
+  version: number;
+  title: string;
+  evaluator: string;
+  severity: Severity;
+  internal: boolean;
+  status: RuleStatus;
+  params: Record<string, unknown>;
+  citation_query: string | null;
+  norm_note: string | null;
+  source_id: string | null;
+  source_section: string | null;
+  source_page: number | null;
+}
+
+export interface RegulatorySource {
+  id: string;
+  title: string;
+  source_type: string;
+  version: string;
+  effective_from: string | null;
+  effective_to: string | null;
+  source_url: string | null;
+  ingest_status: ProcessingStatus;
+  ingest_error: string | null;
+  chunk_count: number;
+  created_at: string;
+}
+
+export interface SearchHit {
+  chunk_id: string;
+  source_id: string;
+  source_title: string;
+  source_version: string;
+  section: string | null;
+  heading: string | null;
+  page: number | null;
+  text: string;
+  score: number;
+  matched_by: string[];
+}
+
+export const fetchRules = () => api<Rule[]>("/rules");
+export const fetchRuleCandidates = (ruleId: string) =>
+  api<SearchHit[]>(`/rules/${ruleId}/candidates`);
+export const verifyRule = (ruleId: string, chunkId: string) =>
+  apiJson<Rule>(`/rules/${ruleId}/verify`, "POST", { chunk_id: chunkId });
+
+export const fetchSources = () => api<RegulatorySource[]>("/regulatory/sources");
+export const searchRegulations = (q: string) =>
+  api<SearchHit[]>(`/regulatory/search?${new URLSearchParams({ q, k: "8" })}`);
+
+export function uploadSource(file: File, fields: Record<string, string>) {
+  const form = new FormData();
+  form.append("file", file);
+  for (const [k, v] of Object.entries(fields)) if (v) form.append(k, v);
+  return api<RegulatorySource>("/regulatory/sources", { method: "POST", body: form });
+}

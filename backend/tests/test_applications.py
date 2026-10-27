@@ -141,7 +141,8 @@ def test_reviewers_see_submitted_applications_but_not_drafts(
     assert client.get("/api/applications", headers=auth_headers(reviewer)).json() == []
 
     submitted = client.post(f"{url}/submit", headers=auth_headers(institution_user))
-    assert submitted.json()["status"] == "submitted"
+    # Submission triggers rule evaluation; one document is far from compliant.
+    assert submitted.json()["status"] == "needs_review"
     assert submitted.json()["submitted_at"] is not None
 
     queue = client.get("/api/applications", headers=auth_headers(reviewer)).json()

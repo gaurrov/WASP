@@ -1,0 +1,87 @@
+# Compliance rules. Synced into the compliance_rules table on startup (python -m app.seed).
+#
+# internal: true  -> data-consistency check (declared vs evidenced values, missing evidence).
+#                    Needs no regulatory citation; starts approved.
+# internal: false -> regulatory norm. Starts as DRAFT: its numbers come from `norm_note`, NOT from
+#                    the APH 2024-27 text. An admin must find the clause (WASP retrieves candidates
+#                    with `citation_query`) and verify it before findings stop being "provisional".
+#
+# Rule versions are immutable. To change logic or params, add a new version and retire the old.
+
+- code: DOC-REQ-001
+  version: 1
+  title: All required documents are submitted
+  evaluator: required_documents
+  severity: high
+  internal: true
+  applicability: {application_type: [extension_of_approval]}
+  citation_query: list of documents to be uploaded for extension of approval
+  norm_note: >
+    Uses the checklist in app/checklists.py, which is a placeholder. Replace it with the APH
+    2024-27 document list for the application type.
+
+- code: DOC-TYPE-001
+  version: 1
+  title: Uploaded documents match their declared type
+  evaluator: document_types
+  severity: medium
+  internal: true
+
+- code: FAC-DECL-001
+  version: 1
+  title: Declared faculty count matches the faculty list
+  evaluator: declared_faculty_count
+  severity: high
+  internal: true
+  required_evidence: [faculty_list.faculty_count]
+
+- code: FAC-QUAL-001
+  version: 1
+  title: Every listed faculty member has a matching qualification certificate
+  evaluator: faculty_certificates
+  severity: high
+  internal: true
+  params: {near_match_threshold: 0.8}
+  required_evidence: [faculty_list.faculty_member, qualification_certificate.holder_name]
+
+- code: FAC-RATIO-001
+  version: 1
+  title: Faculty strength meets the student-faculty ratio
+  evaluator: student_faculty_ratio
+  severity: high
+  internal: false
+  applicability: {application_type: [extension_of_approval]}
+  params: {max_students_per_faculty: 20, programme_years: 4}
+  required_evidence: [faculty_list.faculty_count]
+  citation_query: student faculty ratio undergraduate engineering and technology programmes
+  norm_note: >
+    1:20 for UG engineering as stated in APH 2018-19 and quoted by institutions for later
+    editions. Faculty required = sanctioned intake x programme years / 20 is an assumption about
+    how APH computes it. Verify both against APH 2024-27 before approving.
+
+- code: FAC-CADRE-001
+  version: 1
+  title: "Faculty cadre ratio (Professor : Associate Professor : Assistant Professor)"
+  evaluator: cadre_ratio
+  severity: medium
+  internal: false
+  applicability: {application_type: [extension_of_approval]}
+  params: {ratio: [1, 2, 6]}
+  required_evidence: [faculty_list.faculty_member]
+  citation_query: cadre ratio professor associate professor assistant professor 1:2:6
+  norm_note: >
+    1:2:6 as quoted by institutions citing APH 2021-22. The check requires at least the
+    proportional number of Professors and Associate Professors among listed faculty. Verify.
+
+- code: FIRE-NOC-001
+  version: 1
+  title: Fire safety NOC is valid
+  evaluator: certificate_validity
+  severity: critical
+  internal: false
+  params: {doc_type: fire_noc, field: valid_until, warn_within_days: 90, label: Fire safety NOC}
+  required_evidence: [fire_noc.valid_until]
+  citation_query: fire safety certificate no objection certificate fire and rescue
+  norm_note: >
+    Assumes APH requires a valid fire safety NOC for the premises. Verify the clause and whether
+    validity is judged on the application date or the academic year.

@@ -19,6 +19,7 @@ from app.db import get_db
 from app.docintel.tasks import enqueue_processing
 from app.models import Application, Document, ExtractedFact, Institution, User
 from app.models.enums import ApplicationStatus, DocumentType, ProcessingStatus, UserRole
+from app.rules.tasks import enqueue_evaluation
 from app.storage import get_s3
 
 router = APIRouter(tags=["applications"])
@@ -430,4 +431,6 @@ def submit_application(
         to_status=ApplicationStatus.SUBMITTED,
     )
     db.commit()
+    enqueue_evaluation(application.id)
+    db.refresh(application)  # evaluation may already have run (eager mode in tests)
     return build_detail(db, application)

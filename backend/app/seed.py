@@ -1,4 +1,4 @@
-"""Create the storage bucket, demo users and an institution. Safe to run repeatedly.
+"""Create the storage bucket, demo users and institution, and sync rules.yaml. Idempotent.
 
 Usage: python -m app.seed
 """
@@ -9,6 +9,7 @@ from app.auth import hash_password
 from app.db import SessionLocal
 from app.models import Institution, User
 from app.models.enums import UserRole
+from app.rules.engine import sync_rules
 from app.storage import ensure_bucket
 
 DEMO_PASSWORD = "wasp1234"
@@ -46,6 +47,7 @@ def seed() -> None:
                     )
                 )
         db.commit()
+        sync_rules(db)
     print(f"Seeded demo users (password: {DEMO_PASSWORD})")
 
 

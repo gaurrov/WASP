@@ -12,6 +12,7 @@ import {
   type DocumentInfo,
 } from "../applications";
 import { useAuth } from "../auth";
+import FindingsPanel from "../components/FindingsPanel";
 import Layout from "../components/Layout";
 import StatusBadge from "../components/StatusBadge";
 
@@ -28,8 +29,14 @@ export default function ApplicationDetail() {
     queryKey: ["application", id],
     queryFn: () => fetchApplication(id),
     // Poll while any document is still being extracted.
-    refetchInterval: (q) =>
-      q.state.data?.documents.some((d) => isProcessing(d.processing_status)) ? 2000 : false,
+    refetchInterval: (q) => {
+      const app = q.state.data;
+      const busy =
+        app?.status === "submitted" ||
+        app?.status === "processing" ||
+        app?.documents.some((d) => isProcessing(d.processing_status));
+      return busy ? 2000 : false;
+    },
   });
 
   const refresh = () => {
@@ -125,7 +132,10 @@ export default function ApplicationDetail() {
           {error}
         </p>
       )}
-      <MissingBanner app={app} isInstitution={user?.role === "institution"} />
+      {app.status === "draft" && (
+        <MissingBanner app={app} isInstitution={user?.role === "institution"} />
+      )}
+      {app.status !== "draft" && <FindingsPanel app={app} />}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[16rem_1fr]">
         <section className="h-fit rounded-lg border bg-white p-4">
