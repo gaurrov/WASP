@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "wasp",
+      "credentials": [{ "accessKey": "wasp", "secretKey": "wasp-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

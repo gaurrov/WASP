@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-slate-200);
+  }
+}

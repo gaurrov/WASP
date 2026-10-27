@@ -1,0 +1,106 @@
+# WASP build plan
+
+> Before building past M1: confirm the **official SIH26262 problem description** on the SIH portal
+> and map its expected deliverables against this plan.
+
+## Design principles
+
+1. **AI extracts and interprets; deterministic rules decide; humans approve.** No LLM sets an
+   application's status or grants approval.
+2. **Evidence-linked findings.** Every finding stores the extracted facts (document, page, bbox)
+   and regulatory chunks (clause, version) it rests on.
+3. **Versioned everything.** Documents, regulatory sources and rules are versioned; findings keep
+   the versions used at evaluation time.
+4. **Incremental re-validation** (the "regulatory digital twin"): evidence → facts → rules →
+   findings → alerts form a dependency graph. A re-uploaded document reruns only dependent checks.
+5. **A missing result is never a pass.** Unavailable checks are `unable_to_determine`.
+6. **Uploaded documents are untrusted input**, never instructions to an agent.
+
+## Demo scope
+
+| Dimension | Scope |
+|---|---|
+| Application types | 1 (e.g. Extension of Approval) |
+| Document types | ~6: faculty list, qualification certificates, appointment letters, fire NOC, building/land certificate, lab inventory |
+| Rules | 10–15, each citing an Approval Process Handbook (APH) clause |
+| Regulatory corpus | Current APH + 2–3 circulars, versioned |
+| Roles | Institution, Reviewer, Admin |
+
+The production-scale design (Kafka, Kubernetes, multi-region) is a pitch slide, not prototype work.
+
+## Architecture
+
+```
+React (portal · reviewer workbench · alerts)
+        │ REST
+FastAPI (auth/RBAC · applications · documents · findings · alerts)
+        │ enqueue                         │
+Celery workers ──► LangGraph case workflow (Postgres checkpointer)
+  docintel: PyMuPDF → OCR fallback → classify → LLM extract → Pydantic
+  rag:      hybrid retrieval (pgvector + Postgres full-text) over APH clauses
+  rules:    rules.yaml + Python evaluators → findings
+  monitoring: expiry/deadline scans → deduplicated alerts
+        │
+Postgres + pgvector · S3 (SeaweedFS) · Redis
+```
+
+LangGraph runs one application's logical workflow (which checks, what's missing, pause for
+review, resume). The Celery queue distributes heavy jobs and absorbs bursts.
+
+### LangGraph nodes (M4)
+
+`intake → document_intelligence → quality_gate ─┬─► verification_plan → [completeness ‖
+record_reconciliation ‖ regulatory_retrieval ‖ rules ‖ anomaly] → reconcile ─┬─► human_review
+(interrupt) → workflow_alert → report_audit`. Low-confidence extraction routes to `human_review`;
+reviewer "request clarification" waits for re-upload, then reruns only the affected checks.
+
+## Milestones
+
+| # | Milestone | Done when |
+|---|---|---|
+| **M0** | Setup ✅ | Compose stack runs; schema migrated; auth with 3 roles; CI |
+| **M1** | Vertical slice | Institution creates application, uploads docs to S3 → reviewer sees application + required-document checklist |
+| **M2** | Document intelligence | Upload a PDF → extracted facts shown with confidence + page; low confidence flagged |
+| **M3** | Rules + RAG | Findings shown as pass / fail / needs_review, each with evidence + cited APH clause |
+| **M4** | LangGraph workflow | Full graph with review interrupt; re-upload resumes and reruns only affected checks |
+| **M5** | Monitoring + alerts | Expiry/deadline scans create deduplicated alerts with lifecycle (active → acknowledged → resolved / escalated) |
+| **M6** | Demo hardening | Scripted demo passes 5× in a row; works offline; deck + video ready |
+
+## Team split (6)
+
+| Owner | Area |
+|---|---|
+| Frontend ×2 | Institution portal, reviewer workbench, alert center. Headline UI: **evidence viewer** — click a finding, see the PDF page with the value highlighted beside the cited clause |
+| Backend / workflow | FastAPI, models, LangGraph graph, checkpointing, incremental re-validation |
+| Document AI | OCR pipeline, classification, extraction prompts + Pydantic schemas, confidence |
+| RAG + rules | APH ingestion, hybrid retrieval, clause → `rules.yaml` + evaluators, rule tests |
+| Data + monitoring + pitch | Synthetic document generator (start day 1 — critical path), scheduler/alerts, metrics, deck |
+
+## Demo script
+
+One synthetic application for "ABC Institute of Technology" with five planted issues:
+
+1. A required document is missing.
+2. A scanned certificate's date is misread by OCR → low confidence → review.
+3. Faculty declaration says 20, only 17 qualification certificates match.
+4. A rule depends on a specific APH version.
+5. Fire NOC expires in 30 days.
+
+Flow: submit → findings with citations → reviewer requests clarification → institution re-uploads
+→ only affected checks rerun → status updates → expiry alert appears in monitoring.
+
+## Metrics to report (measured, not promised)
+
+- Field-level extraction accuracy on the labelled synthetic set
+- RAG Recall@k and citation correctness
+- Rule false-positive / false-negative rates
+- Time per application vs. a manual baseline
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| OCR quality on scans | Native PDF text first; OCR only textless pages; low confidence → review |
+| APH → rules translation is slow | Start week 1; cap at 15 rules |
+| LLM cost / venue internet | Tiered calls (parsers before LLMs), cached outputs, local model fallback |
+| Over-building | Anything not in the demo script waits until after M6 |
