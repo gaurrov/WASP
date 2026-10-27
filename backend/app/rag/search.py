@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import RegulatoryChunk, RegulatorySource
@@ -54,6 +54,10 @@ def hybrid_search(
     on_date: date | None = None,
     source_id: uuid.UUID | None = None,
 ) -> list[Hit]:
+    if not db.scalar(
+        select(exists().where(RegulatorySource.ingest_status == ProcessingStatus.DONE))
+    ):
+        return []  # no handbook loaded: skip loading the embedding model entirely
     ranked: dict[uuid.UUID, Hit] = {}
 
     def add(rows, method: str) -> None:
