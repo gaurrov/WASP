@@ -11,6 +11,7 @@ from app.models import Institution, User
 from app.models.enums import UserRole
 from app.rules.engine import sync_rules
 from app.storage import ensure_bucket
+from app.workflow.runner import setup_checkpointer
 
 DEMO_PASSWORD = "wasp1234"
 
@@ -48,6 +49,7 @@ def seed() -> None:
                 )
         db.commit()
         sync_rules(db)
+    setup_checkpointer()
     print(f"Seeded demo users (password: {DEMO_PASSWORD})")
 
 

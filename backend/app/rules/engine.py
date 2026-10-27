@@ -103,7 +103,14 @@ def guard_low_confidence(result: Result, threshold: float) -> Result:
     return result
 
 
-def evaluate(db: Session, application: Application, today: date | None = None) -> list[Finding]:
+def evaluate(
+    db: Session,
+    application: Application,
+    today: date | None = None,
+    only: set[str] | None = None,
+) -> list[Finding]:
+    """Evaluate rules and store findings. With `only` (rule codes), re-check just those rules
+    and leave every other current finding untouched (incremental re-validation)."""
     settings = get_settings()
     documents = list(
         db.scalars(
@@ -120,13 +127,18 @@ def evaluate(db: Session, application: Application, today: date | None = None) -
     )
     on_date = academic_year_start(application.academic_year)
 
+    rules = [r for r in active_rules(db, application) if only is None or r.rule_code in only]
     db.execute(
         update(Finding)
-        .where(Finding.application_id == application.id, Finding.is_current)
+        .where(
+            Finding.application_id == application.id,
+            Finding.is_current,
+            Finding.rule_id.in_([r.id for r in rules]),
+        )
         .values(is_current=False)
     )
     findings = []
-    for rule in active_rules(db, application):
+    for rule in rules:
         result = EVALUATORS[rule.evaluator](ctx, rule.params)
         result = guard_low_confidence(result, settings.low_confidence_threshold)
         finding = Finding(

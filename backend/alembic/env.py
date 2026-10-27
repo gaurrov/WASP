@@ -13,6 +13,13 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Tables owned by LangGraph's checkpointer (created by PostgresSaver.setup()), not by our models.
+EXTERNAL_TABLES = {"checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"}
+
+
+def include_object(obj, name, type_, reflected, compare_to):
+    return not (type_ == "table" and name in EXTERNAL_TABLES)
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -32,7 +39,9 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection, target_metadata=target_metadata, include_object=include_object
+        )
         with context.begin_transaction():
             context.run_migrations()
 

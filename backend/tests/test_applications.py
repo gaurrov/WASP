@@ -115,6 +115,16 @@ def test_replacing_a_document_creates_a_new_version(client, institution_user, ap
     ).json()
 
     assert second["version"] == 2
+    # A replacement can't change the document's type.
+    mismatched = upload(
+        client,
+        institution_user,
+        application["id"],
+        make_pdf("v3"),
+        doc_type="land_document",
+        replaces_id=second["id"],
+    )
+    assert mismatched.status_code == 422
     assert second["supersedes_id"] == first["id"]
     detail = client.get(
         f"/api/applications/{application['id']}", headers=auth_headers(institution_user)

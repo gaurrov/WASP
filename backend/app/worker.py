@@ -6,7 +6,7 @@ settings = get_settings()
 
 celery_app = Celery("wasp", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(
-    include=["app.docintel.tasks", "app.rag.tasks", "app.rules.tasks"],
+    include=["app.docintel.tasks", "app.rag.tasks", "app.workflow.tasks"],
     # Tests run tasks inline so the whole upload → extraction path is exercised synchronously.
     task_always_eager=settings.celery_eager,
     task_eager_propagates=True,
