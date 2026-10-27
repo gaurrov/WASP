@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     env: str = "dev"
     database_url: str = "postgresql+psycopg://wasp:wasp@localhost:5432/wasp"
     redis_url: str = "redis://localhost:6379/0"
+    celery_eager: bool = False
 
     s3_endpoint: str = "http://localhost:8333"
     s3_access_key: str = "wasp"
@@ -20,6 +21,9 @@ class Settings(BaseSettings):
     jwt_ttl_minutes: int = 60 * 8
 
     cors_origins: list[str] = ["http://localhost:5173"]
+
+    # Extracted values below this confidence are flagged for human verification.
+    low_confidence_threshold: float = 0.80
 
     # Embedding size for regulatory chunks; must match the embedding model chosen in M3.
     embedding_dim: int = 768

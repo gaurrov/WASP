@@ -25,11 +25,14 @@ jobs:
           --health-retries 20
     env:
       WASP_DATABASE_URL: postgresql+psycopg://wasp:wasp@localhost:5432/wasp
+      OMP_THREAD_LIMIT: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.11.8"
+      - name: Install Tesseract OCR
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
       - name: Start S3 storage
         # Service containers can't take a command, so run SeaweedFS directly.
         run: >

@@ -5,7 +5,7 @@ import {
   EDITABLE,
   deleteDocument,
   fetchApplication,
-  openDocument,
+  isProcessing,
   submitApplication,
   uploadDocument,
   type ApplicationDetail as Detail,
@@ -27,6 +27,9 @@ export default function ApplicationDetail() {
   const { data: app, isLoading, error: loadError } = useQuery({
     queryKey: ["application", id],
     queryFn: () => fetchApplication(id),
+    // Poll while any document is still being extracted.
+    refetchInterval: (q) =>
+      q.state.data?.documents.some((d) => isProcessing(d.processing_status)) ? 2000 : false,
   });
 
   const refresh = () => {
@@ -178,15 +181,13 @@ export default function ApplicationDetail() {
                     <ul className="mt-2 space-y-1 pl-7">
                       {docs.map((doc) => (
                         <li key={doc.id} className="flex flex-wrap items-center gap-x-3 text-xs">
-                          <button
-                            onClick={() => run(() => openDocument(doc.id))}
-                            className="text-blue-700 hover:underline"
-                          >
+                          <Link to={`/documents/${doc.id}`} className="text-blue-700 hover:underline">
                             {doc.filename}
-                          </button>
+                          </Link>
                           <span className="text-slate-400">
                             {doc.page_count != null && `${doc.page_count} p · `}v{doc.version}
                           </span>
+                          <ProcessingChip doc={doc} />
                           {canEdit && (
                             <label className="cursor-pointer text-slate-500 hover:text-slate-900">
                               Replace
@@ -218,6 +219,33 @@ export default function ApplicationDetail() {
         </section>
       </div>
     </Layout>
+  );
+}
+
+function ProcessingChip({ doc }: { doc: DocumentInfo }) {
+  if (isProcessing(doc.processing_status)) {
+    return <span className="text-slate-400">extracting…</span>;
+  }
+  if (doc.processing_status === "failed") {
+    return <span className="text-red-600">extraction failed</span>;
+  }
+  const mismatch =
+    doc.detected_doc_type &&
+    doc.detected_doc_type !== doc.doc_type &&
+    doc.detected_doc_type !== "unclassified" &&
+    (doc.detection_confidence ?? 0) >= 0.6;
+  return (
+    <>
+      <span className="text-slate-500">{doc.fact_count} fields</span>
+      {doc.low_confidence_count > 0 && (
+        <span className="rounded bg-amber-100 px-1.5 text-amber-900">
+          {doc.low_confidence_count} to verify
+        </span>
+      )}
+      {mismatch && (
+        <span className="rounded bg-amber-100 px-1.5 text-amber-900">type mismatch?</span>
+      )}
+    </>
   );
 }
 

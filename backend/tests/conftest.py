@@ -11,6 +11,7 @@ _base_url = os.environ.get(
 _server_url, _, _ = _base_url.rpartition("/")
 os.environ["WASP_DATABASE_URL"] = f"{_server_url}/wasp_test"
 os.environ["WASP_S3_BUCKET"] = "wasp-test"
+os.environ["WASP_CELERY_EAGER"] = "true"  # run document processing inline
 
 from collections.abc import Callable, Iterator  # noqa: E402
 

@@ -60,7 +60,7 @@ reviewer "request clarification" waits for re-upload, then reruns only the affec
 |---|---|---|
 | **M0** | Setup ✅ | Compose stack runs; schema migrated; auth with 3 roles; CI |
 | **M1** | Vertical slice ✅ | Institution creates application, uploads docs to S3 → reviewer sees application + required-document checklist |
-| **M2** | Document intelligence | Upload a PDF → extracted facts shown with confidence + page; low confidence flagged |
+| **M2** | Document intelligence ✅ | Upload a PDF → extracted facts shown with confidence + page; low confidence flagged |
 | **M3** | Rules + RAG | Findings shown as pass / fail / needs_review, each with evidence + cited APH clause |
 | **M4** | LangGraph workflow | Full graph with review interrupt; re-upload resumes and reruns only affected checks |
 | **M5** | Monitoring + alerts | Expiry/deadline scans create deduplicated alerts with lifecycle (active → acknowledged → resolved / escalated) |
@@ -90,6 +90,11 @@ Flow: submit → findings with citations → reviewer requests clarification →
 → only affected checks rerun → status updates → expiry alert appears in monitoring.
 
 ## Metrics to report (measured, not promised)
+
+Current (M2, rules-v1 extractor, 43 synthetic documents incl. 3 scans): classification 100%,
+fields 98.8% correct, 1.2% flagged for review, 0% silently wrong, 0% missing.
+Synthetic documents are cleaner than real ones; re-measure on real samples before quoting.
+
 
 - Field-level extraction accuracy on the labelled synthetic set
 - RAG Recall@k and citation correctness

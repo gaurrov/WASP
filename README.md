@@ -49,6 +49,17 @@ docker compose exec backend alembic upgrade head
 
 After editing a model, always generate a migration and review it before committing.
 
+### Synthetic documents and extraction accuracy
+
+```bash
+docker compose exec backend python -m app.synthetic          # writes ./data/synthetic/abc_institute
+docker compose exec backend python -m app.docintel.evaluate  # field-level accuracy vs ground truth
+```
+
+The set mirrors the demo script: 20 faculty but 17 certificates, a misspelled name, a fire NOC
+expiring in 30 days, and good/poor scans that exercise OCR. `tests/test_docintel.py` runs the same
+evaluation as a regression gate: no field may be silently wrong (wrong values must be flagged).
+
 Frontend:
 
 ```bash
@@ -64,6 +75,8 @@ To add backend dependencies: `cd backend && uv add <package>`, then `docker comp
 backend/
   app/
     api/          FastAPI routers (auth, applications + documents)
+    docintel/     text (PyMuPDF / Tesseract OCR) → classify → field extraction, Celery task, evaluation
+    synthetic.py  synthetic document generator with ground truth
     checklists.py required documents per application type (placeholder until APH rules in M3)
     audit.py      append-only workflow event log
     models/       SQLAlchemy models (institutions → applications → documents → facts → findings → alerts)
@@ -78,9 +91,9 @@ infra/            service config (SeaweedFS S3 credentials)
 docs/PLAN.md      build plan
 ```
 
-Coming in later milestones: `app/docintel/` (OCR + extraction), `app/rag/` (regulatory hybrid
+Coming in later milestones: `app/rag/` (regulatory hybrid
 retrieval), `app/rules/` (versioned rule evaluators), `app/workflow/` (LangGraph),
-`app/monitoring/` (alerts), `data/synthetic/` (demo document generator).
+`app/monitoring/` (alerts).
 
 ## Workflow
 

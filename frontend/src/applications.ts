@@ -38,8 +38,46 @@ export interface DocumentInfo {
   page_count: number | null;
   version: number;
   supersedes_id: string | null;
-  processing_status: string;
+  processing_status: ProcessingStatus;
+  processing_error: string | null;
+  detected_doc_type: string | null;
+  detection_confidence: number | null;
+  ocr_used: boolean | null;
   created_at: string;
+  fact_count: number;
+  low_confidence_count: number;
+}
+
+export type ProcessingStatus = "pending" | "processing" | "done" | "failed";
+
+export interface Fact {
+  id: string;
+  field_name: string;
+  value: unknown;
+  raw_text: string | null;
+  confidence: number;
+  low_confidence: boolean;
+  page: number | null;
+  bbox: [number, number, number, number] | null;
+  extractor: string;
+}
+
+export interface DocumentDetail {
+  id: string;
+  application_id: string;
+  doc_type: string;
+  filename: string;
+  mime_type: string;
+  version: number;
+  processing_status: ProcessingStatus;
+  processing_error: string | null;
+  processed_at: string | null;
+  detected_doc_type: string | null;
+  detection_confidence: number | null;
+  type_mismatch: boolean;
+  ocr_used: boolean | null;
+  pages: { number: number; width: number; height: number; ocr: boolean }[];
+  facts: Fact[];
 }
 
 export interface ApplicationSummary {
@@ -94,6 +132,25 @@ export function uploadDocument(
 
 export const deleteDocument = (applicationId: string, documentId: string) =>
   api<void>(`/applications/${applicationId}/documents/${documentId}`, { method: "DELETE" });
+
+export const fetchDocument = (id: string) => api<DocumentDetail>(`/documents/${id}`);
+
+export const reprocessDocument = (id: string) =>
+  api<{ status: string }>(`/documents/${id}/reprocess`, { method: "POST" });
+
+export const isProcessing = (status: ProcessingStatus) =>
+  status === "pending" || status === "processing";
+
+/** Fetches a rendered page with the bearer token and returns an object URL for <img>. */
+export async function fetchPageImage(documentId: string, page: number): Promise<string> {
+  const res = await fetch(`/api/documents/${documentId}/pages/${page}.png`, {
+    headers: { Authorization: `Bearer ${tokenStore.get()}` },
+  });
+  if (!res.ok) throw new Error(`Could not render page ${page}`);
+  return URL.createObjectURL(await res.blob());
+}
+
+export const humanize = (s: string) => s.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 
 /** Opens a document in a new tab. Fetches with the bearer token, since a plain link can't. */
 export async function openDocument(documentId: string): Promise<void> {

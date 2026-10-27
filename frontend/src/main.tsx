@@ -7,6 +7,7 @@ import "./index.css";
 import ApplicationDetail from "./pages/ApplicationDetail";
 import ApplicationsList from "./pages/ApplicationsList";
 import Dashboard from "./pages/Dashboard";
+import DocumentViewer from "./pages/DocumentViewer";
 import Login from "./pages/Login";
 import NewApplication from "./pages/NewApplication";
 
@@ -29,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/applications" element={<RequireAuth><ApplicationsList /></RequireAuth>} />
             <Route path="/applications/new" element={<RequireAuth><NewApplication /></RequireAuth>} />
             <Route path="/applications/:id" element={<RequireAuth><ApplicationDetail /></RequireAuth>} />
+            <Route path="/documents/:id" element={<RequireAuth><DocumentViewer /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

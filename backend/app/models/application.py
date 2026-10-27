@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +47,14 @@ class Document(IdMixin, TimestampMixin, Base):
     processing_status: Mapped[ProcessingStatus] = mapped_column(
         str_enum(ProcessingStatus), default=ProcessingStatus.PENDING
     )
+    processing_error: Mapped[str | None] = mapped_column(Text)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # What the classifier thinks this is; compared with the institution's declared doc_type.
+    detected_doc_type: Mapped[DocumentType | None] = mapped_column(str_enum(DocumentType))
+    detection_confidence: Mapped[float | None] = mapped_column(Float)
+    ocr_used: Mapped[bool | None] = mapped_column()
+    # [{number, width, height, ocr}] in PDF points, for overlaying evidence boxes.
+    pages: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
 
     application: Mapped[Application] = relationship(back_populates="documents")
@@ -62,6 +70,7 @@ class ExtractedFact(IdMixin, TimestampMixin, Base):
     application_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("applications.id"), index=True)
     field_name: Mapped[str] = mapped_column(String(128), index=True)
     value: Mapped[Any] = mapped_column(JSONB)
+    raw_text: Mapped[str | None] = mapped_column(Text)  # the matched text before normalization
     confidence: Mapped[float] = mapped_column(Float)
     page: Mapped[int | None] = mapped_column(Integer)
     # [x0, y0, x1, y1] in PDF points, when the extractor can locate the value.

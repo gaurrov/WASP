@@ -6,6 +6,10 @@ settings = get_settings()
 
 celery_app = Celery("wasp", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(
+    include=["app.docintel.tasks"],
+    # Tests run tasks inline so the whole upload → extraction path is exercised synchronously.
+    task_always_eager=settings.celery_eager,
+    task_eager_propagates=True,
     task_acks_late=True,  # re-deliver if a worker dies mid-task; tasks must be idempotent
     worker_prefetch_multiplier=1,
     task_default_queue="default",

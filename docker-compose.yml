@@ -5,6 +5,9 @@ x-backend-env: &backend-env
   WASP_S3_ACCESS_KEY: wasp
   WASP_S3_SECRET_KEY: wasp-secret
   WASP_S3_BUCKET: wasp-documents
+  # One OCR thread per process: the worker already runs many processes in parallel, and
+  # Tesseract's own threading on top of that oversubscribes the CPU.
+  OMP_THREAD_LIMIT: "1"
   WASP_JWT_SECRET: ${WASP_JWT_SECRET:-dev-only-insecure-secret-change-me-0000}
 
 services:
@@ -39,6 +42,7 @@ services:
 
   backend:
     build: ./backend
+    image: wasp-backend:dev  # shared with the worker so both always run the same build
     environment:
       <<: *backend-env
       WATCHFILES_FORCE_POLLING: "true"  # file events don't cross Windows/macOS bind mounts
@@ -46,17 +50,17 @@ services:
       sh -c "alembic upgrade head && python -m app.seed &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports: ["8000:8000"]
-    volumes: [./backend:/app]
+    volumes: [./backend:/app, ./data:/data]
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
       storage: { condition: service_started }
 
   worker:
-    build: ./backend
+    image: wasp-backend:dev
     environment: *backend-env
     command: celery -A app.worker worker -Q default,documents,monitoring --loglevel=info
-    volumes: [./backend:/app]
+    volumes: [./backend:/app, ./data:/data]
     depends_on:
       backend: { condition: service_started }
 
