@@ -7,9 +7,8 @@ from typing import Annotated
 
 import pymupdf
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.audit import record_event
@@ -17,7 +16,8 @@ from app.auth import CurrentUser, require_roles
 from app.checklists import APPLICATION_TYPES
 from app.config import get_settings
 from app.db import get_db
-from app.models import Application, Document, Institution, User
+from app.docintel.tasks import enqueue_processing
+from app.models import Application, Document, ExtractedFact, Institution, User
 from app.models.enums import ApplicationStatus, DocumentType, ProcessingStatus, UserRole
 from app.storage import get_s3
 
@@ -91,7 +91,13 @@ class DocumentOut(BaseModel):
     version: int
     supersedes_id: uuid.UUID | None
     processing_status: ProcessingStatus
+    processing_error: str | None
+    detected_doc_type: DocumentType | None
+    detection_confidence: float | None
+    ocr_used: bool | None
     created_at: datetime
+    fact_count: int = 0
+    low_confidence_count: int = 0
 
 
 class ChecklistStatus(ChecklistItemOut):
@@ -184,11 +190,30 @@ def build_detail(db: Session, application: Application) -> ApplicationDetail:
         )
         for item in APPLICATION_TYPES[application.application_type].checklist
     ]
+    threshold = get_settings().low_confidence_threshold
+    fact_stats = {
+        doc_id: (total, low or 0)
+        for doc_id, total, low in db.execute(
+            select(
+                ExtractedFact.document_id,
+                func.count(),
+                func.count().filter(ExtractedFact.confidence < threshold),
+            )
+            .where(ExtractedFact.application_id == application.id)
+            .group_by(ExtractedFact.document_id)
+        )
+    }
+    documents = []
+    for d in docs:
+        out = DocumentOut.model_validate(d, from_attributes=True)
+        out.fact_count, out.low_confidence_count = fact_stats.get(d.id, (0, 0))
+        documents.append(out)
+
     institution = db.get(Institution, application.institution_id)
     return ApplicationDetail(
         **to_summary(application, institution.name, len(docs)),
         declared=DeclaredValues(**application.declared),
-        documents=[DocumentOut.model_validate(d, from_attributes=True) for d in docs],
+        documents=documents,
         checklist=checklist,
         missing_required=[c.doc_type for c in checklist if not c.satisfied],
     )
@@ -358,6 +383,7 @@ def upload_document(
         replaces_id=str(replaced.id) if replaced else None,
     )
     db.commit()
+    enqueue_processing(document.id)
     return document
 
 
@@ -373,6 +399,7 @@ def delete_document(
     if document is None or document.application_id != application.id:
         raise HTTPException(status_code=404, detail="Document not found")
     get_s3().delete_object(Bucket=get_settings().s3_bucket, Key=document.storage_key)
+    db.execute(delete(ExtractedFact).where(ExtractedFact.document_id == document.id))
     db.delete(document)
     record_event(
         db,
@@ -382,20 +409,6 @@ def delete_document(
         document_id=str(document_id),
     )
     db.commit()
-
-
-@router.get("/documents/{document_id}/content")
-def download_document(document_id: uuid.UUID, user: CurrentUser, db: DB) -> StreamingResponse:
-    document = db.get(Document, document_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    load_application(db, document.application_id, user)  # enforces tenant/role visibility
-    obj = get_s3().get_object(Bucket=get_settings().s3_bucket, Key=document.storage_key)
-    return StreamingResponse(
-        obj["Body"].iter_chunks(),
-        media_type=document.mime_type,
-        headers={"Content-Disposition": f'inline; filename="{document.filename}"'},
-    )
 
 
 @router.post("/applications/{application_id}/submit", response_model=ApplicationDetail)

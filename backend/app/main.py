@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import applications, auth, health
+from app.api import applications, auth, documents, health
 from app.config import get_settings
 
 app = FastAPI(title="WASP API", version="0.1.0")
@@ -17,3 +17,4 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(applications.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
