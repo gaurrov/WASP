@@ -25,7 +25,6 @@ import {
   PageHeader,
   Panel,
   Pill,
-  Stamp,
   StatusPill,
   caseRef,
   formatDate,
@@ -168,7 +167,6 @@ export default function ApplicationDetail() {
             )}
           </>
         }
-        actions={workflow?.decision && <Stamp decision={workflow.decision.decision} date={workflow.decision.decided_at} />}
       />
 
       {error && (

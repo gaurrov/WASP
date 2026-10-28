@@ -17,7 +17,10 @@ services:
       POSTGRES_USER: wasp
       POSTGRES_PASSWORD: wasp
       POSTGRES_DB: wasp
-    ports: ["5432:5432"]
+    # Only for host tools (psql, pgAdmin); the services reach the database as db:5432. Not 5432
+    # or 5433, which a locally installed PostgreSQL often holds (the db container then fails to
+    # start, or host clients silently reach that other server), and localhost only.
+    ports: ["127.0.0.1:${WASP_DB_PORT:-15432}:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wasp -d wasp"]

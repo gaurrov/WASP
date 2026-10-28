@@ -239,26 +239,6 @@ export function Notice({
   );
 }
 
-/** The inked decision stamp shown on decided cases. */
-export function Stamp({ decision, date }: { decision: "approve" | "reject"; date: string }) {
-  const approved = decision === "approve";
-  return (
-    <div
-      role="img"
-      aria-label={`${approved ? "Approved" : "Rejected"} on ${formatDate(date)}`}
-      className={cx(
-        "stamp inline-flex flex-col items-center rounded-md border-[3px] border-double px-4 py-1.5 select-none",
-        approved ? "border-stamp text-stamp" : "border-fail text-fail",
-      )}
-    >
-      <span className="text-[1.35rem] leading-none font-extrabold tracking-[0.18em]">
-        {approved ? "APPROVED" : "REJECTED"}
-      </span>
-      <span className="mt-1 text-[11px] font-bold tracking-[0.12em]">AICTE · {formatDate(date).toUpperCase()}</span>
-    </div>
-  );
-}
-
 // --- Forms -------------------------------------------------------------------------------
 
 export const inputClass =
