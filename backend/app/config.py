@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="WASP_", extra="ignore")
 
     env: str = "dev"
-    database_url: str = "postgresql+psycopg://wasp:wasp@localhost:5432/wasp"
+    database_url: str = "postgresql+psycopg://wasp:wasp@localhost:15432/wasp"
     redis_url: str = "redis://localhost:6379/0"
     celery_eager: bool = False
 

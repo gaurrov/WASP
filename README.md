@@ -22,7 +22,7 @@ Workflow Automation System Project, built for Smart India Hackathon 2026, proble
 
 <br>
 
-![An approved case in WASP: findings with evidence, the reviewer's reasons, and the decision stamp](docs/images/case.png)
+![An approved case in WASP: findings with evidence, and the reviewer's reasons](docs/images/case.png)
 
 ## What it does
 
@@ -115,7 +115,10 @@ docker compose up --build
 | Web app | http://localhost:5173 |
 | API and interactive docs | http://localhost:8000/docs |
 | S3 storage (SeaweedFS) | http://localhost:8333 |
-| PostgreSQL with pgvector | localhost:5432 (`wasp` / `wasp`) |
+| PostgreSQL with pgvector | localhost:15432 (`wasp` / `wasp`; set `WASP_DB_PORT` in `.env` to change) |
+
+If a container fails with *port is already allocated* or *ports are not available*, another program
+on your machine holds that port: stop it, or for Postgres pick a free port with `WASP_DB_PORT`.
 
 On first start the backend runs migrations, creates the storage bucket, syncs the rules and seeds
 three demo accounts. The password for all of them is `wasp1234`.
@@ -310,12 +313,12 @@ Atkinson Hyperlegible Next, designed by the Braille Institute for legibility.
 | `auth.tsx` | `AuthProvider` / `useAuth()` backed by `/auth/me` |
 | `applications.ts` | Typed API client for every endpoint |
 | `index.css` | Design tokens (Tailwind `@theme`): ink, paper, stamp violet, status tones; self-hosted font; focus and reduced-motion rules |
-| `components/ui.tsx` | Shared primitives: buttons, panels, pills, notices, fields, page header, the decision **stamp**, date and value formatting, case references |
+| `components/ui.tsx` | Shared primitives: buttons, panels, pills, notices, fields, page header, date and value formatting, case references |
 | `pages/Login.tsx` | Sign-in, illustrated with a real finding; demo-account shortcuts in dev |
 | `pages/Dashboard.tsx` | Overview: cases by stage, the reviewer's work list or the institution's applications and next steps, open alerts |
 | `pages/ApplicationsList.tsx` | Institution's applications / reviewer's queue |
 | `pages/NewApplication.tsx` | Create draft with declared values |
-| `pages/ApplicationDetail.tsx` | The case file: header with reference and decision stamp, findings, documents (long groups collapse; files needing attention stay visible), audit trail, and a sticky panel for the next step |
+| `pages/ApplicationDetail.tsx` | The case file: header with reference, findings, documents (long groups collapse; files needing attention stay visible), audit trail, and a sticky panel for the next step |
 | `pages/DocumentViewer.tsx` | **Evidence viewer**: page images with clickable bounding boxes per extracted value; `?fact=` preselects |
 | `pages/RulesPage.tsx` | Rules, their norms and verification; find and verify clauses |
 | `pages/HandbookPage.tsx` | Upload/index handbook editions; search them |
@@ -426,7 +429,8 @@ provides dev defaults.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WASP_DATABASE_URL` | `postgresql+psycopg://wasp:wasp@localhost:5432/wasp` | Postgres |
+| `WASP_DATABASE_URL` | `postgresql+psycopg://wasp:wasp@localhost:15432/wasp` | Postgres |
+| `WASP_DB_PORT` | `15432` | Host port Compose publishes Postgres on (read from the root `.env`) |
 | `WASP_REDIS_URL` | `redis://localhost:6379/0` | Celery broker/result backend |
 | `WASP_CELERY_EAGER` | `false` | Run tasks inline (tests) |
 | `WASP_S3_ENDPOINT` / `_ACCESS_KEY` / `_SECRET_KEY` / `_BUCKET` | SeaweedFS dev values | Object storage |

@@ -6,7 +6,7 @@ The environment is rewritten before any `app` import, because settings are cache
 import os
 
 _base_url = os.environ.get(
-    "WASP_DATABASE_URL", "postgresql+psycopg://wasp:wasp@localhost:5432/wasp"
+    "WASP_DATABASE_URL", "postgresql+psycopg://wasp:wasp@localhost:15432/wasp"
 )
 _server_url, _, _ = _base_url.rpartition("/")
 os.environ["WASP_DATABASE_URL"] = f"{_server_url}/wasp_test"
